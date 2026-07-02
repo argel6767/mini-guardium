@@ -2,6 +2,7 @@ package com.guardium_clone.ingestion_processor.api;
 
 import com.guardium_clone.ingestion_processor.model.AccessEvent;
 import com.guardium_clone.ingestion_processor.service.EventIngestionService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,8 +20,8 @@ public class EventIngestionController {
 
     @PostMapping("/events")
     @ResponseStatus(HttpStatus.CREATED)
-    public IngestEventResponse ingestEvent(@RequestBody IngestEventRequest request) {
+    public IngestEventResponse ingestEvent(@Valid @RequestBody IngestEventRequest request) {
         AccessEvent event = eventIngestionService.ingest(request);
-        return new IngestEventResponse(event.getId());
+        return IngestEventResponse.from(event);
     }
 }
