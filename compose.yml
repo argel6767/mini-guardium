@@ -1,0 +1,128 @@
+name: miniguardium
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: miniguardium-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: miniguardium
+      POSTGRES_USER: miniguardium
+      POSTGRES_PASSWORD: miniguardium_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U miniguardium -d miniguardium"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - miniguardium
+
+  ingestion-api:
+    profiles: ["app"]
+    build:
+      context: ./ingestion_processor
+    container_name: miniguardium-ingestion-api
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/miniguardium
+      SPRING_DATASOURCE_USERNAME: miniguardium
+      SPRING_DATASOURCE_PASSWORD: miniguardium_dev_password
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+    ports:
+      - "8080:8080"
+    volumes:
+      - ingestion_maven_cache:/root/.m2
+      - ingestion_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - miniguardium
+
+  anomaly-detector:
+    profiles: ["future"]
+    build:
+      context: ./analytics_engine
+    container_name: miniguardium-anomaly-detector
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://miniguardium:miniguardium_dev_password@postgres:5432/miniguardium
+    volumes:
+      - analytics_data:/app/data
+      - analytics_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - miniguardium
+
+  traffic-simulator:
+    profiles: ["future"]
+    build:
+      context: ./traffic_simulator
+    container_name: miniguardium-traffic-simulator
+    restart: unless-stopped
+    environment:
+      INGESTION_API_URL: http://ingestion-api:8080/events
+    volumes:
+      - simulator_data:/app/data
+      - simulator_logs:/app/logs
+    depends_on:
+      - ingestion-api
+    networks:
+      - miniguardium
+
+  dashboard:
+    profiles: ["future"]
+    build:
+      context: ./dashboard
+    container_name: miniguardium-dashboard
+    restart: unless-stopped
+    environment:
+      API_BASE_URL: http://ingestion-api:8080
+    ports:
+      - "3000:3000"
+    volumes:
+      - dashboard_node_modules:/app/node_modules
+    depends_on:
+      - ingestion-api
+    networks:
+      - miniguardium
+
+  redis:
+    profiles: ["streaming"]
+    image: redis:8-alpine
+    container_name: miniguardium-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - miniguardium
+
+networks:
+  miniguardium:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  ingestion_maven_cache:
+  ingestion_logs:
+  analytics_data:
+  analytics_logs:
+  simulator_data:
+  simulator_logs:
+  dashboard_node_modules:
+  redis_data:
