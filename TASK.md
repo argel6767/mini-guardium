@@ -124,6 +124,6 @@ Known constraints:
 - Add Compose command examples for PostgreSQL only and the full `app` profile.
 - Document RabbitMQ management UI credentials and queue/exchange names for local development.
 - Document traffic simulator RabbitMQ configuration and common load-test settings.
-- Consider setting `spring.jpa.open-in-view=false` once API read paths are implemented.
+- `spring.jpa.open-in-view=false` is configured in ingestion to avoid Open Session in View during request rendering.
 - Review Log4j2 pattern defaults so empty MDC fields render cleanly.
 
