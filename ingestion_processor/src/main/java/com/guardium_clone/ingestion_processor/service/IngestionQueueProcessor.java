@@ -17,6 +17,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.apache.logging.log4j.CloseableThreadContext;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -27,6 +30,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Component
 public class IngestionQueueProcessor {
 
+    private static final Logger LOGGER = LogManager.getLogger(IngestionQueueProcessor.class);
     private static final int MAX_RETRY_COUNT = 5;
     private static final Duration BASE_BACKOFF = Duration.ofSeconds(5);
     private static final Duration MAX_BACKOFF = Duration.ofMinutes(5);
@@ -57,8 +61,11 @@ public class IngestionQueueProcessor {
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void enqueueCommittedEvent(IngestionQueuedEvent event) {
-        enqueue(event.ingestionId(), IngestionStatus.PENDING);
-        drainQueue();
+        try (CloseableThreadContext.Instance ignored = traceContext(event.ingestionId())) {
+            LOGGER.debug("Received committed ingestion event");
+            enqueue(event.ingestionId(), IngestionStatus.PENDING);
+            drainQueue();
+        }
     }
 
     @Scheduled(fixedDelayString = "${ingestion.worker.sweep-delay-ms:5000}")
@@ -76,72 +83,121 @@ public class IngestionQueueProcessor {
         failedEvents.forEach(event -> enqueue(event.getId(), event.getStatus()));
 
         if (!pendingEvents.isEmpty() || !failedEvents.isEmpty()) {
+            LOGGER.info(
+                    "Queued retry sweep work pendingCount={}, retryableFailedCount={}",
+                    pendingEvents.size(),
+                    failedEvents.size()
+            );
             drainQueue();
+        } else {
+            LOGGER.debug("Retry sweep found no eligible ingestion events");
         }
     }
 
     private void enqueue(Long ingestionId, IngestionStatus status) {
-        if (queuedIds.add(ingestionId)) {
-            workQueue.offer(new QueuedIngestionWork(ingestionId, priorityFor(status), Instant.now()));
+        try (CloseableThreadContext.Instance ignored = traceContext(ingestionId)) {
+            if (queuedIds.add(ingestionId)) {
+                int priority = priorityFor(status);
+                workQueue.offer(new QueuedIngestionWork(ingestionId, priority, Instant.now()));
+                LOGGER.debug("Queued ingestion work status={}, priority={}", status, priority);
+            } else {
+                LOGGER.debug("Skipped duplicate ingestion work queue request status={}", status);
+            }
         }
     }
 
     private void drainQueue() {
         if (!workerRunning.compareAndSet(false, true)) {
+            LOGGER.debug("Ingestion worker already running; queued work will be drained by active worker");
             return;
         }
 
+        LOGGER.debug("Starting ingestion queue drain");
+        int processedWorkItems = 0;
         try {
             QueuedIngestionWork work = workQueue.poll();
             while (work != null) {
                 queuedIds.remove(work.ingestionId());
                 processQueuedEvent(work.ingestionId());
+                processedWorkItems++;
                 work = workQueue.poll();
             }
         } finally {
             workerRunning.set(false);
+            LOGGER.debug("Finished ingestion queue drain processedWorkItems={}", processedWorkItems);
         }
 
         if (!workQueue.isEmpty()) {
+            LOGGER.debug("Additional ingestion work arrived during drain; restarting drain");
             drainQueue();
         }
     }
 
     private void processQueuedEvent(Long eventId) {
-        transactionTemplate.executeWithoutResult(status -> {
-            IngestionEvent queuedEvent = ingestionEventRepository.findById(eventId).orElse(null);
-            Instant now = Instant.now();
-            if (queuedEvent == null || !isReadyForProcessing(queuedEvent, now)) {
-                return;
-            }
+        try (CloseableThreadContext.Instance ignored = traceContext(eventId)) {
+            transactionTemplate.executeWithoutResult(status -> {
+                IngestionEvent queuedEvent = ingestionEventRepository.findById(eventId).orElse(null);
+                Instant now = Instant.now();
+                if (queuedEvent == null) {
+                    LOGGER.warn("Skipped ingestion work because the ingestion event no longer exists");
+                    return;
+                }
+                if (!isReadyForProcessing(queuedEvent, now)) {
+                    LOGGER.debug(
+                            "Skipped ingestion event because it is not ready status={}, retryCount={}, nextAttemptAt={}",
+                            queuedEvent.getStatus(),
+                            queuedEvent.getRetryCount(),
+                            queuedEvent.getNextAttemptAt()
+                    );
+                    return;
+                }
 
-            queuedEvent.setStatus(IngestionStatus.PROCESSING);
-            queuedEvent.setLastAttemptAt(now);
-            queuedEvent.setNextAttemptAt(null);
-            try {
-                DatabaseUser user = databaseUserRepository.findByUsername(queuedEvent.getUsername())
-                        .orElseGet(() -> databaseUserRepository.save(new DatabaseUser(queuedEvent.getUsername())));
-                DatabaseTable table = databaseTableRepository.findByName(queuedEvent.getTableName())
-                        .orElseGet(() -> databaseTableRepository.save(new DatabaseTable(queuedEvent.getTableName(), false)));
-                Instant occurredAt = queuedEvent.getOccurredAt() != null ? queuedEvent.getOccurredAt() : Instant.now();
+                queuedEvent.setStatus(IngestionStatus.PROCESSING);
+                queuedEvent.setLastAttemptAt(now);
+                queuedEvent.setNextAttemptAt(null);
+                LOGGER.info(
+                        "Processing ingestion event status={}, retryCount={}, tableName={}, queryType={}",
+                        queuedEvent.getStatus(),
+                        queuedEvent.getRetryCount(),
+                        queuedEvent.getTableName(),
+                        queuedEvent.getQueryType()
+                );
+                try {
+                    DatabaseUser user = databaseUserRepository.findByUsername(queuedEvent.getUsername())
+                            .orElseGet(() -> databaseUserRepository.save(new DatabaseUser(queuedEvent.getUsername())));
+                    DatabaseTable table = databaseTableRepository.findByName(queuedEvent.getTableName())
+                            .orElseGet(() -> databaseTableRepository.save(new DatabaseTable(queuedEvent.getTableName(), false)));
+                    Instant occurredAt = queuedEvent.getOccurredAt() != null ? queuedEvent.getOccurredAt() : Instant.now();
 
-                accessEventRepository.save(new AccessEvent(
-                        user,
-                        table,
-                        queuedEvent.getQueryType(),
-                        occurredAt,
-                        queuedEvent.getRowCount(),
-                        queuedEvent.getSourceIp(),
-                        queuedEvent.getQueryText()
-                ));
-                queuedEvent.setStatus(IngestionStatus.PROCESSED);
-            } catch (RuntimeException exception) {
-                int retryCount = queuedEvent.getRetryCount() + 1;
-                queuedEvent.setRetryCount(retryCount);
-                queuedEvent.setStatus(IngestionStatus.FAILED);
-                queuedEvent.setNextAttemptAt(nextAttemptAt(retryCount, now));
-            }
-        });
+                    accessEventRepository.save(new AccessEvent(
+                            user,
+                            table,
+                            queuedEvent.getQueryType(),
+                            occurredAt,
+                            queuedEvent.getRowCount(),
+                            queuedEvent.getSourceIp(),
+                            queuedEvent.getQueryText()
+                    ));
+                    queuedEvent.setStatus(IngestionStatus.PROCESSED);
+                    LOGGER.info("Processed ingestion event");
+                } catch (RuntimeException exception) {
+                    int retryCount = queuedEvent.getRetryCount() + 1;
+                    queuedEvent.setRetryCount(retryCount);
+                    queuedEvent.setStatus(IngestionStatus.FAILED);
+                    queuedEvent.setNextAttemptAt(nextAttemptAt(retryCount, now));
+                    if (queuedEvent.getNextAttemptAt() == null) {
+                        LOGGER.error("Ingestion event failed permanently retryCount={}", retryCount, exception);
+                    } else {
+                        LOGGER.warn(
+                                "Ingestion event failed and will be retried retryCount={}, nextAttemptAt={}",
+                                retryCount,
+                                queuedEvent.getNextAttemptAt(),
+                                exception
+                        );
+                    }
+                }
+            });
+        }
     }
 
     private boolean isReadyForProcessing(IngestionEvent event, Instant now) {
@@ -168,6 +224,13 @@ public class IngestionQueueProcessor {
 
     private int priorityFor(IngestionStatus status) {
         return status == IngestionStatus.PENDING ? 0 : 1;
+    }
+
+    private CloseableThreadContext.Instance traceContext(Long ingestionEventId) {
+        String eventId = ingestionEventId.toString();
+        return CloseableThreadContext
+                .put("requestId", "ingestion-" + eventId)
+                .put("ingestionEventId", eventId);
     }
 
     private record QueuedIngestionWork(Long ingestionId, int priority, Instant queuedAt)

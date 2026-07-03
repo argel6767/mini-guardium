@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+  <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">
+      <PatternLayout pattern="%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%t] %logger{36} requestId=%X{requestId} ingestionEventId=%X{ingestionEventId} - %msg%n%throwable" />
+    </Console>
+  </Appenders>
+  <Loggers>
+    <Root level="info">
+      <AppenderRef ref="Console" />
+    </Root>
+    <Logger name="com.guardium_clone.ingestion_processor" level="debug" additivity="false">
+      <AppenderRef ref="Console" />
+    </Logger>
+  </Loggers>
+</Configuration>

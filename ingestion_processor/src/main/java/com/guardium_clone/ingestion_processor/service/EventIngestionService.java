@@ -3,12 +3,17 @@ package com.guardium_clone.ingestion_processor.service;
 import com.guardium_clone.ingestion_processor.api.IngestEventRequest;
 import com.guardium_clone.ingestion_processor.model.IngestionEvent;
 import com.guardium_clone.ingestion_processor.repository.IngestionEventRepository;
+import org.apache.logging.log4j.CloseableThreadContext;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class EventIngestionService {
+
+    private static final Logger LOGGER = LogManager.getLogger(EventIngestionService.class);
 
     private final IngestionEventRepository ingestionEventRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -34,7 +39,23 @@ public class EventIngestionService {
         );
 
         IngestionEvent savedEvent = ingestionEventRepository.save(event);
-        eventPublisher.publishEvent(new IngestionQueuedEvent(savedEvent.getId()));
+        try (CloseableThreadContext.Instance ignored = traceContext(savedEvent.getId())) {
+            LOGGER.info(
+                    "Accepted ingestion event for username={}, tableName={}, queryType={}",
+                    savedEvent.getUsername(),
+                    savedEvent.getTableName(),
+                    savedEvent.getQueryType()
+            );
+            eventPublisher.publishEvent(new IngestionQueuedEvent(savedEvent.getId()));
+            LOGGER.debug("Published ingestion queue event");
+        }
         return savedEvent;
+    }
+
+    private CloseableThreadContext.Instance traceContext(Long ingestionEventId) {
+        String eventId = ingestionEventId.toString();
+        return CloseableThreadContext
+                .put("requestId", "ingestion-" + eventId)
+                .put("ingestionEventId", eventId);
     }
 }

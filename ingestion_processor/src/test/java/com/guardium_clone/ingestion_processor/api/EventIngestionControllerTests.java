@@ -1,6 +1,7 @@
 package com.guardium_clone.ingestion_processor.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.guardium_clone.ingestion_processor.model.IngestionStatus;
@@ -117,6 +118,36 @@ class EventIngestionControllerTests {
                                 {
                                   "occurredAt": "2026-07-02T22:30:00Z",
                                   "rowCount": 42,
+                                  "queryText": "select * from customer_accounts"
+                                }
+                                """))
+                .andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+        assertThat(ingestionEventRepository.findAll()).isEmpty();
+        assertThat(accessEventRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    void actuatorHealthDoesNotRequireAuthentication() throws Exception {
+        MvcResult result = mockMvc.perform(get("/actuator/health"))
+                .andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(HttpStatus.OK.value());
+    }
+
+    @Test
+    void ingestEventRejectsBlankFieldsAndNegativeRowCount() throws Exception {
+        MvcResult result = mockMvc.perform(post("/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": " ",
+                                  "tableName": " ",
+                                  "queryType": "SELECT",
+                                  "occurredAt": "2026-07-02T22:30:00Z",
+                                  "rowCount": -1,
+                                  "sourceIp": " ",
                                   "queryText": "select * from customer_accounts"
                                 }
                                 """))
