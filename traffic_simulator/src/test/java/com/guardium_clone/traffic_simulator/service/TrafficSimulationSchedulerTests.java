@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 
 import com.guardium_clone.traffic_simulator.config.TrafficSimulatorProperties;
 import java.net.URI;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 class TrafficSimulationSchedulerTests {
@@ -14,7 +15,14 @@ class TrafficSimulationSchedulerTests {
     void schedulerDoesNothingWhenSimulatorIsDisabled() {
         TrafficSimulationService service = mock(TrafficSimulationService.class);
         TrafficSimulationScheduler scheduler = new TrafficSimulationScheduler(
-                new TrafficSimulatorProperties(false, URI.create("http://localhost:8080/events"), 5, false),
+                new TrafficSimulatorProperties(
+                        false,
+                        URI.create("http://localhost:8080/events"),
+                        5,
+                        false,
+                        1,
+                        Duration.ZERO
+                ),
                 service
         );
 
@@ -27,7 +35,14 @@ class TrafficSimulationSchedulerTests {
     void schedulerSendsConfiguredBatchWhenEnabled() {
         TrafficSimulationService service = mock(TrafficSimulationService.class);
         TrafficSimulationScheduler scheduler = new TrafficSimulationScheduler(
-                new TrafficSimulatorProperties(true, URI.create("http://localhost:8080/events"), 5, false),
+                new TrafficSimulatorProperties(
+                        true,
+                        URI.create("http://localhost:8080/events"),
+                        5,
+                        false,
+                        1,
+                        Duration.ZERO
+                ),
                 service
         );
 

@@ -38,3 +38,7 @@
 - Do not add new dependencies unless necessary.
 - Explain significant design or architectural decisions.
 - Preserve existing behavior unless the task explicitly requires changing it.
+## Local Environment Notes
+
+- On this machine, Maven commands should override `JAVA_HOME` for the process because the persisted value is quoted and breaks Windows batch scripts. Use `$env:JAVA_HOME='C:\Program Files\OpenJDK\jdk-25'` before running `mvn` or `mvnw.cmd`.
+
