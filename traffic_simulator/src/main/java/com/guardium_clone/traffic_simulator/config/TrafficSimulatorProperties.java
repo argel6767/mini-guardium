@@ -7,7 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record TrafficSimulatorProperties(
         boolean enabled,
         URI ingestionApiUrl,
-        int eventsPerTick
+        int eventsPerTick,
+        boolean concurrent
 ) {
 
     public TrafficSimulatorProperties {

@@ -14,7 +14,7 @@ class TrafficSimulationSchedulerTests {
     void schedulerDoesNothingWhenSimulatorIsDisabled() {
         TrafficSimulationService service = mock(TrafficSimulationService.class);
         TrafficSimulationScheduler scheduler = new TrafficSimulationScheduler(
-                new TrafficSimulatorProperties(false, URI.create("http://localhost:8080/events"), 5),
+                new TrafficSimulatorProperties(false, URI.create("http://localhost:8080/events"), 5, false),
                 service
         );
 
@@ -27,7 +27,7 @@ class TrafficSimulationSchedulerTests {
     void schedulerSendsConfiguredBatchWhenEnabled() {
         TrafficSimulationService service = mock(TrafficSimulationService.class);
         TrafficSimulationScheduler scheduler = new TrafficSimulationScheduler(
-                new TrafficSimulatorProperties(true, URI.create("http://localhost:8080/events"), 5),
+                new TrafficSimulatorProperties(true, URI.create("http://localhost:8080/events"), 5, false),
                 service
         );
 

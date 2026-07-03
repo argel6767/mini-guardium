@@ -71,6 +71,7 @@ services:
       INGESTION_API_URL: http://ingestion-api:8080/events
       TRAFFIC_SIMULATOR_ENABLED: "true"
       TRAFFIC_SIMULATOR_EVENTS_PER_TICK: "5"
+      TRAFFIC_SIMULATOR_CONCURRENT: "false"
     volumes:
       - simulator_data:/app/data
       - simulator_logs:/app/logs
