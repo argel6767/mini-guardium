@@ -22,6 +22,28 @@ services:
     networks:
       - miniguardium
 
+  rabbitmq:
+    profiles: ["app"]
+    image: rabbitmq:4-management-alpine
+    container_name: miniguardium-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: miniguardium
+      RABBITMQ_DEFAULT_PASS: miniguardium_dev_password
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - miniguardium
+
   ingestion-api:
     profiles: ["app"]
     build:
@@ -33,6 +55,10 @@ services:
       SPRING_DATASOURCE_USERNAME: miniguardium
       SPRING_DATASOURCE_PASSWORD: miniguardium_dev_password
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: "5672"
+      SPRING_RABBITMQ_USERNAME: miniguardium
+      SPRING_RABBITMQ_PASSWORD: miniguardium_dev_password
     ports:
       - "8080:8080"
     healthcheck:
@@ -46,6 +72,8 @@ services:
       - ingestion_logs:/app/logs
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     networks:
       - miniguardium
@@ -130,6 +158,7 @@ networks:
 
 volumes:
   postgres_data:
+  rabbitmq_data:
   ingestion_maven_cache:
   ingestion_logs:
   analytics_data:
@@ -138,4 +167,3 @@ volumes:
   simulator_logs:
   dashboard_node_modules:
   redis_data:
-

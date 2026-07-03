@@ -1,9 +1,12 @@
 package com.guardium_clone.ingestion_processor.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
+import com.guardium_clone.ingestion_processor.messaging.AccessEventCreatedPublisher;
 import com.guardium_clone.ingestion_processor.model.IngestionStatus;
 import com.guardium_clone.ingestion_processor.model.QueryType;
 import com.guardium_clone.ingestion_processor.repository.AccessEventRepository;
@@ -18,6 +21,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -41,6 +45,9 @@ class EventIngestionControllerTests {
 
     @Autowired
     private IngestionEventRepository ingestionEventRepository;
+
+    @MockitoBean
+    private AccessEventCreatedPublisher accessEventCreatedPublisher;
 
     @BeforeEach
     void cleanDatabase() {
@@ -108,6 +115,7 @@ class EventIngestionControllerTests {
                 });
         assertThat(databaseUserRepository.findByUsername("alice")).isPresent();
         assertThat(databaseTableRepository.findByName("customer_accounts")).isPresent();
+        verify(accessEventCreatedPublisher).publish(any());
     }
 
     @Test

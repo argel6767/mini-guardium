@@ -4,6 +4,7 @@ import com.guardium_clone.ingestion_processor.model.AccessEvent;
 import com.guardium_clone.ingestion_processor.model.DatabaseTable;
 import com.guardium_clone.ingestion_processor.model.DatabaseUser;
 import com.guardium_clone.ingestion_processor.model.IngestionEvent;
+import com.guardium_clone.ingestion_processor.messaging.AccessEventCreatedPublisher;
 import com.guardium_clone.ingestion_processor.model.IngestionStatus;
 import com.guardium_clone.ingestion_processor.repository.AccessEventRepository;
 import com.guardium_clone.ingestion_processor.repository.DatabaseTableRepository;
@@ -36,6 +37,7 @@ public class IngestionQueueProcessor {
     private static final Duration MAX_BACKOFF = Duration.ofMinutes(5);
 
     private final AccessEventRepository accessEventRepository;
+    private final AccessEventCreatedPublisher accessEventCreatedPublisher;
     private final DatabaseTableRepository databaseTableRepository;
     private final DatabaseUserRepository databaseUserRepository;
     private final IngestionEventRepository ingestionEventRepository;
@@ -46,12 +48,14 @@ public class IngestionQueueProcessor {
 
     public IngestionQueueProcessor(
             AccessEventRepository accessEventRepository,
+            AccessEventCreatedPublisher accessEventCreatedPublisher,
             DatabaseTableRepository databaseTableRepository,
             DatabaseUserRepository databaseUserRepository,
             IngestionEventRepository ingestionEventRepository,
             TransactionTemplate transactionTemplate
     ) {
         this.accessEventRepository = accessEventRepository;
+        this.accessEventCreatedPublisher = accessEventCreatedPublisher;
         this.databaseTableRepository = databaseTableRepository;
         this.databaseUserRepository = databaseUserRepository;
         this.ingestionEventRepository = ingestionEventRepository;
@@ -169,7 +173,7 @@ public class IngestionQueueProcessor {
                             .orElseGet(() -> databaseTableRepository.save(new DatabaseTable(queuedEvent.getTableName(), false)));
                     Instant occurredAt = queuedEvent.getOccurredAt() != null ? queuedEvent.getOccurredAt() : Instant.now();
 
-                    accessEventRepository.save(new AccessEvent(
+                    AccessEvent accessEvent = accessEventRepository.save(new AccessEvent(
                             user,
                             table,
                             queuedEvent.getQueryType(),
@@ -178,6 +182,7 @@ public class IngestionQueueProcessor {
                             queuedEvent.getSourceIp(),
                             queuedEvent.getQueryText()
                     ));
+                    accessEventCreatedPublisher.publish(accessEvent);
                     queuedEvent.setStatus(IngestionStatus.PROCESSED);
                     LOGGER.info("Processed ingestion event");
                 } catch (RuntimeException exception) {

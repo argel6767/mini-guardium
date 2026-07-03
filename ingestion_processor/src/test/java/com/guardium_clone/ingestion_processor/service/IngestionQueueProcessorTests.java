@@ -11,6 +11,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.guardium_clone.ingestion_processor.messaging.AccessEventCreatedPublisher;
 import com.guardium_clone.ingestion_processor.model.AccessEvent;
 import com.guardium_clone.ingestion_processor.model.DatabaseTable;
 import com.guardium_clone.ingestion_processor.model.DatabaseUser;
@@ -39,6 +40,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 class IngestionQueueProcessorTests {
 
     private AccessEventRepository accessEventRepository;
+    private AccessEventCreatedPublisher accessEventCreatedPublisher;
     private DatabaseTableRepository databaseTableRepository;
     private DatabaseUserRepository databaseUserRepository;
     private IngestionEventRepository ingestionEventRepository;
@@ -48,6 +50,7 @@ class IngestionQueueProcessorTests {
     @BeforeEach
     void setUp() {
         accessEventRepository = mock(AccessEventRepository.class);
+        accessEventCreatedPublisher = mock(AccessEventCreatedPublisher.class);
         databaseTableRepository = mock(DatabaseTableRepository.class);
         databaseUserRepository = mock(DatabaseUserRepository.class);
         ingestionEventRepository = mock(IngestionEventRepository.class);
@@ -57,9 +60,11 @@ class IngestionQueueProcessorTests {
             callback.accept(mock(TransactionStatus.class));
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
+        when(accessEventRepository.save(any(AccessEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         processor = new IngestionQueueProcessor(
                 accessEventRepository,
+                accessEventCreatedPublisher,
                 databaseTableRepository,
                 databaseUserRepository,
                 ingestionEventRepository,
@@ -90,6 +95,7 @@ class IngestionQueueProcessorTests {
 
         ArgumentCaptor<AccessEvent> accessEventCaptor = ArgumentCaptor.forClass(AccessEvent.class);
         verify(accessEventRepository).save(accessEventCaptor.capture());
+        verify(accessEventCreatedPublisher).publish(accessEventCaptor.getValue());
         assertThat(accessEventCaptor.getValue())
                 .satisfies(accessEvent -> {
                     assertThat(accessEvent.getUser().getUsername()).isEqualTo("alice");
@@ -121,6 +127,25 @@ class IngestionQueueProcessorTests {
         assertThat(event.getStatus()).isEqualTo(IngestionStatus.PROCESSED);
     }
 
+    @Test
+    void publishFailureMarksEventFailedAndSchedulesRetryWithBackoff() {
+        IngestionEvent event = ingestionEvent(1L, "alice", "customer_accounts", IngestionStatus.PENDING);
+        when(ingestionEventRepository.findById(1L)).thenReturn(Optional.of(event));
+        when(databaseUserRepository.findByUsername("alice")).thenReturn(Optional.of(new DatabaseUser("alice")));
+        when(databaseTableRepository.findByName("customer_accounts"))
+                .thenReturn(Optional.of(new DatabaseTable("customer_accounts", false)));
+        doThrow(new RuntimeException("rabbit unavailable")).when(accessEventCreatedPublisher).publish(any(AccessEvent.class));
+
+        processor.enqueueCommittedEvent(new IngestionQueuedEvent(1L));
+
+        assertThat(event.getStatus()).isEqualTo(IngestionStatus.FAILED);
+        assertThat(event.getRetryCount()).isEqualTo(1);
+        assertThat(event.getLastAttemptAt()).isNotNull();
+        assertThat(event.getNextAttemptAt()).isAfterOrEqualTo(event.getLastAttemptAt().plusSeconds(5));
+        assertThat(event.getNextAttemptAt()).isBefore(event.getLastAttemptAt().plusSeconds(8));
+        verify(accessEventRepository).save(any(AccessEvent.class));
+        verify(accessEventCreatedPublisher).publish(any(AccessEvent.class));
+    }
     @Test
     void processingFailureMarksEventFailedAndSchedulesRetryWithBackoff() {
         IngestionEvent event = ingestionEvent(1L, "alice", "customer_accounts", IngestionStatus.PENDING);
@@ -287,6 +312,7 @@ class IngestionQueueProcessorTests {
             callback.accept(mock(TransactionStatus.class));
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
+        when(accessEventRepository.save(any(AccessEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         processor.enqueueCommittedEvent(new IngestionQueuedEvent(7L));
 
@@ -312,6 +338,7 @@ class IngestionQueueProcessorTests {
             callback.accept(mock(TransactionStatus.class));
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
+        when(accessEventRepository.save(any(AccessEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         processor.enqueueCommittedEvent(new IngestionQueuedEvent(1L));
 
