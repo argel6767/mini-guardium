@@ -119,11 +119,7 @@ Known constraints:
 
 ## Cleanup Tasks
 
-- Add a README with local development commands.
-- Document request/response examples for `/events`.
-- Add Compose command examples for PostgreSQL only and the full `app` profile.
-- Document RabbitMQ management UI credentials and queue/exchange names for local development.
-- Document traffic simulator RabbitMQ configuration and common load-test settings.
+- README now documents the project purpose, components, local run commands, `/events` request/response examples, RabbitMQ details, and traffic simulator settings.
 - `spring.jpa.open-in-view=false` is configured in ingestion to avoid Open Session in View during request rendering.
 - Review Log4j2 pattern defaults so empty MDC fields render cleanly.
 
