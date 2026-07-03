@@ -1,6 +1,6 @@
 # TASK.md
 
-This task list reflects the current state of the ingestion service plus the remaining work from `project-plan-doc.md`.
+This task list reflects the current state of the ingestion service, traffic simulator, Compose setup, and remaining work from `project-plan-doc.md`.
 
 ## Current Baseline
 
@@ -14,12 +14,21 @@ Completed:
 - Log4j2 is configured with `requestId` and `ingestionEventId` tracing metadata.
 - H2-backed tests cover the ingestion endpoint, service behavior, processor behavior, repository queries, lifecycle callbacks, DTO mapping, and app startup.
 - Dockerfile and Compose app profile can run the ingestion service with PostgreSQL.
+- Spring Boot traffic simulator exists under `traffic_simulator`.
+- The simulator generates ingestion-compatible events with username, table name, query type, timestamp, row count, source IP, and query text.
+- The simulator supports configurable target URL, tick rate, events per tick, sequential mode, and virtual-thread concurrent mode.
+- Simulator send logic retries transient transport failures before logging a final failure.
+- Compose app profile runs PostgreSQL, ingestion API, and traffic simulator together.
+- Compose waits for PostgreSQL health before starting ingestion and waits for ingestion TCP readiness before starting the simulator.
+- Traffic simulator tests cover payload generation, scheduler behavior, service selection, sequential/concurrent sending, retry behavior, and app startup.
 
 Known constraints:
-- The in-memory queue is safe for the current single-ingestion-instance simulation, but it is not a distributed queue.
+- The ingestion in-memory queue is safe for the current single-ingestion-instance simulation, but it is not a distributed queue.
 - Queued rows are not claimed atomically across multiple app instances.
-- Security currently permits all requests; this is intentional for early ingestion work but must change before exposing the API.
+- Simulator delivery is best-effort and does not persist unsent events locally.
+- Security currently permits all ingestion requests; this is intentional for early local ingestion work but must change before exposing the API.
 - Hibernate `ddl-auto=update` is being used for development instead of a migration tool.
+- Documentation for local run commands is still light; `AGENTS.md` contains the local `JAVA_HOME` override note for Maven commands on this machine.
 
 ## Next Tasks
 
@@ -51,13 +60,13 @@ Known constraints:
 - Apply policies during rule evaluation.
 - Add tests for policy validation and rule behavior with configured policies.
 
-### Traffic Simulator
+### Traffic Simulator Follow-Up
 
-- Create the `traffic_simulator` service referenced by Compose.
-- Generate realistic JSON events with username, table name, query type, timestamp, row count, source IP, and query text.
-- Support burst mode for load testing async ingestion.
-- Add configuration for target ingestion URL and event rate.
 - Document how to run simulator plus ingestion API through Compose.
+- Add an end-to-end Compose smoke test or manual verification script for simulator-to-ingestion flow.
+- Consider a simulator burst profile or command mode for explicit load tests instead of only increasing `events-per-tick`.
+- Consider configurable data distributions for users, tables, sensitive-table targeting, and high-risk queries once alert rules exist.
+- Decide whether simulator failures should remain log-only or feed operational metrics.
 
 ### Anomaly Detection
 
@@ -81,6 +90,7 @@ Known constraints:
 - Add database-level constraints that match application validation where practical.
 - Consider a dead-letter status or table for ingestion events that exceed max retries.
 - Add operational metrics for accepted events, processed events, failed events, retry counts, and queue depth.
+- Add simulator metrics for sent events, retry attempts, and failed sends if load testing becomes a regular workflow.
 
 ### Distributed/Streaming Stretch
 
@@ -103,6 +113,8 @@ Known constraints:
 
 - Add a README with local development commands.
 - Document request/response examples for `/events`.
-- Add Compose command examples for PostgreSQL only, ingestion API, and future profiles.
+- Add Compose command examples for PostgreSQL only and the full `app` profile.
+- Document traffic simulator configuration and common load-test settings.
 - Consider setting `spring.jpa.open-in-view=false` once API read paths are implemented.
 - Review Log4j2 pattern defaults so empty MDC fields render cleanly.
+

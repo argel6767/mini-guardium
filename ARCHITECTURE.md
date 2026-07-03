@@ -1,31 +1,14 @@
 # ARCHITECTURE.md
 
-MiniGuardium is a simplified real-time database activity monitor. The current implementation focuses on reliable event ingestion. The broader plan adds rule-based alerting, anomaly detection, policy APIs, a traffic simulator, and a dashboard.
+MiniGuardium is a simplified real-time database activity monitor. The current implementation has two Java/Spring Boot services: a reliable ingestion API and a traffic simulator that produces synthetic database activity. The broader plan adds rule-based alerting, anomaly detection, policy APIs, and a dashboard.
 
 ## System Context
-
-Planned system flow:
-
-```text
-[DB Traffic Simulator] -> [Ingestion API] -> [Event Store]
-                                |
-                                v
-                         [Rule Evaluation]
-                                |
-                                v
-                           [Alerts API]
-                                |
-                                v
-                            [Dashboard]
-
-Future stretch:
-[Event Store or Stream] -> [Anomaly Detector] -> [Alerts]
-```
 
 Current implemented flow:
 
 ```text
-POST /events
+[Traffic Simulator]
+    -> POST /events
     -> EventIngestionController
     -> EventIngestionService
     -> ingestion_events row with PENDING status
@@ -33,6 +16,19 @@ POST /events
     -> IngestionQueueProcessor in-memory priority queue
     -> access_events row
     -> ingestion_events status updated to PROCESSED or FAILED
+```
+
+Planned alerting and visibility flow:
+
+```text
+[Access Event]
+    -> Rule Evaluation
+    -> alerts row
+    -> Alerts API
+    -> Dashboard
+
+Future stretch:
+[Event Store or Stream] -> [Anomaly Detector] -> [Alerts]
 ```
 
 ## Repository Layout
@@ -45,13 +41,22 @@ POST /events
 |-- compose.yml
 |-- project-plan-doc.md
 |-- docker/
-`-- ingestion_processor/
+|-- ingestion_processor/
+|   |-- Dockerfile
+|   |-- pom.xml
+|   `-- src/
+`-- traffic_simulator/
     |-- Dockerfile
     |-- pom.xml
     `-- src/
 ```
 
-`ingestion_processor` is currently the only implemented application service. Compose also reserves future profiles for `analytics_engine`, `traffic_simulator`, `dashboard`, and Redis-backed streaming.
+Implemented application services:
+
+- `ingestion_processor`: accepts, persists, queues, and processes database activity events.
+- `traffic_simulator`: generates synthetic ingestion payloads and posts them to the ingestion API.
+
+Compose still contains future placeholders for `analytics_engine`, `dashboard`, and Redis-backed streaming.
 
 ## Ingestion Service
 
@@ -125,9 +130,41 @@ Current retry settings:
 - max backoff: `5 minutes`,
 - jitter: random additional delay up to half of the capped delay.
 
+## Traffic Simulator
+
+The traffic simulator is a Java/Spring Boot service that generates synthetic database activity and sends it to the ingestion API.
+
+Current behavior:
+
+- generates ingestion-compatible DTOs with username, table name, query type, event timestamp, row count, source IP, and SQL text,
+- weights generated query types toward `SELECT`, with occasional `INSERT`, `UPDATE`, and `DELETE`,
+- generates some `DELETE` statements without `WHERE` clauses to support future rule-alert testing,
+- posts events through Spring `RestClient`,
+- logs successful sends with ingestion id and status,
+- catches and logs `RestClientException` failures so one send failure does not stop the scheduler,
+- retries transient send failures for the same generated event before giving up.
+
+Simulator configuration:
+
+```properties
+traffic-simulator.enabled=false
+traffic-simulator.ingestion-api-url=http://localhost:8080/events
+traffic-simulator.events-per-tick=1
+traffic-simulator.tick-rate=PT1S
+traffic-simulator.concurrent=false
+traffic-simulator.send-retry-attempts=3
+traffic-simulator.send-retry-backoff=PT0.25S
+```
+
+Runtime modes:
+
+- sequential mode is the default and sends the configured batch one request at a time,
+- concurrent mode uses virtual threads to send each event in a batch concurrently,
+- Compose currently runs sequential mode with `20` events per tick.
+
 ## Data Model
 
-Current entities:
+Current ingestion entities:
 
 - `IngestionEvent`: durable queue entry containing original event payload, status, retry metadata, and timestamps.
 - `DatabaseUser`: unique database user name.
@@ -160,16 +197,20 @@ This is acceptable for early iteration, but migrations should be introduced befo
 
 ## Logging and Tracing
 
-The service uses Log4j2 through `log4j2-spring.xml`. Logs include MDC-style fields:
+The ingestion service uses Log4j2 through `log4j2-spring.xml`. Logs include MDC-style fields:
 
 - `requestId`,
 - `ingestionEventId`.
 
 These fields allow a single ingestion request to be traced from acceptance through queued processing and retries.
 
+The traffic simulator uses standard Spring logging for send successes, send retries, exhausted send failures, and interrupted retry waits.
+
 ## Security
 
-`SecurityConfig` currently disables CSRF and permits all requests. This keeps local ingestion and simulation simple while the event pipeline is being built.
+`SecurityConfig` in the ingestion service currently disables CSRF and permits all requests. This keeps local ingestion and simulation simple while the event pipeline is being built.
+
+The simulator includes Spring Security on the classpath but does not expose application APIs beyond the default actuator endpoint behavior.
 
 Planned security work:
 - API key or basic auth for application endpoints,
@@ -181,17 +222,24 @@ Planned security work:
 `compose.yml` currently defines:
 
 - `postgres`: PostgreSQL 17 with health checks and a persistent volume.
-- `ingestion-api`: Spring Boot service under the `app` profile.
+- `ingestion-api`: Spring Boot ingestion service under the `app` profile.
+- `traffic-simulator`: Spring Boot simulator service under the `app` profile.
 - `anomaly-detector`: future profile placeholder.
-- `traffic-simulator`: future profile placeholder.
 - `dashboard`: future profile placeholder.
 - `redis`: streaming profile placeholder.
 
-The ingestion Dockerfile uses a Maven build stage and an Eclipse Temurin 25 JRE Jammy runtime stage.
+Compose startup behavior:
+
+- `ingestion-api` waits for PostgreSQL to become healthy,
+- `ingestion-api` exposes a TCP health check for port `8080`,
+- `traffic-simulator` waits for `ingestion-api` to become healthy before starting,
+- simulator send retries handle short ingestion restarts or transient connection failures after startup.
+
+Both implemented service Dockerfiles use a Maven build stage and an Eclipse Temurin 25 JRE Jammy runtime stage.
 
 ## Testing Architecture
 
-The test suite covers:
+The ingestion test suite covers:
 
 - controller validation and DTO response shape,
 - unauthenticated health access,
@@ -202,11 +250,21 @@ The test suite covers:
 - DTO mapping,
 - application context and `main` delegation.
 
-Tests are written with AssertJ for readability.
+The traffic simulator test suite covers:
+
+- DTO validation compatibility with the ingestion API,
+- generated payload shape,
+- sender success, transient retry, exhausted retry, and interrupted retry behavior,
+- sequential and concurrent batch sending,
+- scheduler enabled/disabled behavior,
+- service selection between sequential and concurrent modes,
+- application context startup.
+
+Tests are written with AssertJ and Mockito for readability.
 
 ## Architectural Constraints and Future Decisions
 
-Current single-instance assumption:
+Current single-instance ingestion assumption:
 - The queue is in memory.
 - The dedupe set is in memory.
 - Rows are not claimed atomically for multi-instance processing.
@@ -217,5 +275,7 @@ If the ingestion service runs with more than one instance, queue processing must
 - PostgreSQL `FOR UPDATE SKIP LOCKED`,
 - Redis Streams,
 - Kafka.
+
+Simulator delivery is best-effort. It retries short transport failures, but it does not maintain a durable local outbox. This is acceptable for synthetic load generation, not for authoritative event capture.
 
 The planned anomaly detector can initially be implemented inside the Java service for speed, then moved to a Python service or stream consumer if the project reaches the Week 4 stretch architecture.
