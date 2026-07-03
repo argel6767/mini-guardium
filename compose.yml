@@ -62,7 +62,7 @@ services:
       - miniguardium
 
   traffic-simulator:
-    profiles: ["future"]
+    profiles: ["app"]
     build:
       context: ./traffic_simulator
     container_name: miniguardium-traffic-simulator

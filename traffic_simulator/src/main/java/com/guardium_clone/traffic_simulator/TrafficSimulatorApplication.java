@@ -1,13 +1,13 @@
-package com.guardium_clone.traffic_generator;
+package com.guardium_clone.traffic_simulator;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class TrafficGeneratorApplication {
+public class TrafficSimulatorApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(TrafficGeneratorApplication.class, args);
+		SpringApplication.run(TrafficSimulatorApplication.class, args);
 	}
 
 }
