@@ -1,28 +1,20 @@
 package com.guardium_clone.ingestion_processor.api;
 
-import com.guardium_clone.ingestion_processor.model.AccessEvent;
-import com.guardium_clone.ingestion_processor.model.QueryType;
+import com.guardium_clone.ingestion_processor.model.IngestionEvent;
+import com.guardium_clone.ingestion_processor.model.IngestionStatus;
 import java.time.Instant;
 
 public record IngestEventResponse(
-        Long eventId,
-        String username,
-        String tableName,
-        QueryType queryType,
-        Instant occurredAt,
-        long rowCount,
-        String sourceIp
+        Long ingestionId,
+        IngestionStatus status,
+        Instant acceptedAt
 ) {
 
-    public static IngestEventResponse from(AccessEvent event) {
+    public static IngestEventResponse from(IngestionEvent event) {
         return new IngestEventResponse(
                 event.getId(),
-                event.getUser().getUsername(),
-                event.getTable().getName(),
-                event.getQueryType(),
-                event.getOccurredAt(),
-                event.getRowCount(),
-                event.getSourceIp()
+                event.getStatus(),
+                event.getCreatedAt()
         );
     }
 }

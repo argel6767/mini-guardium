@@ -3,10 +3,13 @@ package com.guardium_clone.ingestion_processor.api;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
+import com.guardium_clone.ingestion_processor.model.IngestionStatus;
 import com.guardium_clone.ingestion_processor.model.QueryType;
 import com.guardium_clone.ingestion_processor.repository.AccessEventRepository;
 import com.guardium_clone.ingestion_processor.repository.DatabaseTableRepository;
 import com.guardium_clone.ingestion_processor.repository.DatabaseUserRepository;
+import com.guardium_clone.ingestion_processor.repository.IngestionEventRepository;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,15 +38,19 @@ class EventIngestionControllerTests {
     @Autowired
     private DatabaseUserRepository databaseUserRepository;
 
+    @Autowired
+    private IngestionEventRepository ingestionEventRepository;
+
     @BeforeEach
     void cleanDatabase() {
         accessEventRepository.deleteAll();
+        ingestionEventRepository.deleteAll();
         databaseTableRepository.deleteAll();
         databaseUserRepository.deleteAll();
     }
 
     @Test
-    void ingestEventStoresAccessEvent() throws Exception {
+    void ingestEventQueuesEventForProcessing() throws Exception {
         MvcResult result = mockMvc.perform(post("/events")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -60,21 +67,43 @@ class EventIngestionControllerTests {
                 .andReturn();
         String responseBody = result.getResponse().getContentAsString();
 
-        assertThat(result.getResponse().getStatus()).isEqualTo(HttpStatus.CREATED.value());
-        assertThat(responseBody).contains("\"eventId\":");
-        assertThat(responseBody).contains("\"username\":\"alice\"");
-        assertThat(responseBody).contains("\"tableName\":\"customer_accounts\"");
-        assertThat(responseBody).contains("\"queryType\":\"SELECT\"");
-        assertThat(responseBody).contains("\"occurredAt\":\"2026-07-02T22:30:00Z\"");
-        assertThat(responseBody).contains("\"rowCount\":42");
-        assertThat(responseBody).contains("\"sourceIp\":\"10.0.0.12\"");
-        assertThat(responseBody).doesNotContain("\"queryText\"", "\"user\"", "\"table\"", "\"sensitive\"", "\"id\"");
+        assertThat(result.getResponse().getStatus()).isEqualTo(HttpStatus.ACCEPTED.value());
+        assertThat(responseBody).contains("\"ingestionId\":");
+        assertThat(responseBody).contains("\"status\":\"PENDING\"");
+        assertThat(responseBody).contains("\"acceptedAt\":");
+        assertThat(responseBody).doesNotContain(
+                "\"username\"",
+                "\"tableName\"",
+                "\"queryText\"",
+                "\"user\"",
+                "\"table\"",
+                "\"sensitive\"",
+                "\"id\""
+        );
+
+        waitForProcessedIngestionEvent();
+
+        assertThat(ingestionEventRepository.findAll())
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.getUsername()).isEqualTo("alice");
+                    assertThat(event.getTableName()).isEqualTo("customer_accounts");
+                    assertThat(event.getQueryType()).isEqualTo(QueryType.SELECT);
+                    assertThat(event.getOccurredAt()).isEqualTo(Instant.parse("2026-07-02T22:30:00Z"));
+                    assertThat(event.getRowCount()).isEqualTo(42);
+                    assertThat(event.getSourceIp()).isEqualTo("10.0.0.12");
+                    assertThat(event.getQueryText()).isEqualTo("select * from customer_accounts");
+                    assertThat(event.getStatus()).isEqualTo(IngestionStatus.PROCESSED);
+                    assertThat(event.getCreatedAt()).isNotNull();
+                    assertThat(event.getUpdatedAt()).isNotNull();
+                });
         assertThat(accessEventRepository.findAll())
                 .singleElement()
                 .satisfies(event -> {
                     assertThat(event.getQueryType()).isEqualTo(QueryType.SELECT);
                     assertThat(event.getRowCount()).isEqualTo(42);
                     assertThat(event.getSourceIp()).isEqualTo("10.0.0.12");
+                    assertThat(event.getQueryText()).isEqualTo("select * from customer_accounts");
                 });
         assertThat(databaseUserRepository.findByUsername("alice")).isPresent();
         assertThat(databaseTableRepository.findByName("customer_accounts")).isPresent();
@@ -94,6 +123,19 @@ class EventIngestionControllerTests {
                 .andReturn();
 
         assertThat(result.getResponse().getStatus()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+        assertThat(ingestionEventRepository.findAll()).isEmpty();
         assertThat(accessEventRepository.findAll()).isEmpty();
+    }
+
+    private void waitForProcessedIngestionEvent() throws InterruptedException {
+        long deadline = System.nanoTime() + 2_000_000_000L;
+        while (System.nanoTime() < deadline) {
+            boolean processed = ingestionEventRepository.findAll().stream()
+                    .anyMatch(event -> event.getStatus() == IngestionStatus.PROCESSED);
+            if (processed) {
+                return;
+            }
+            Thread.sleep(25);
+        }
     }
 }
