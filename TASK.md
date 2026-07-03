@@ -1,6 +1,6 @@
 # TASK.md
 
-This task list reflects the current state of the ingestion service, traffic simulator, Compose setup, and remaining work from `project-plan-doc.md`.
+This task list reflects the current state of the ingestion service, traffic simulator, evaluation service initialization, Compose setup, and remaining work from `project-plan-doc.md`.
 
 ## Current Baseline
 
@@ -16,16 +16,23 @@ Completed:
 - Dockerfile and Compose app profile can run the ingestion service with PostgreSQL.
 - Spring Boot traffic simulator exists under `traffic_simulator`.
 - The simulator generates ingestion-compatible events with username, table name, query type, timestamp, row count, source IP, and query text.
-- The simulator supports configurable target URL, tick rate, events per tick, sequential mode, and virtual-thread concurrent mode.
-- Simulator send logic retries transient transport failures before logging a final failure.
-- Compose app profile runs PostgreSQL, ingestion API, and traffic simulator together.
-- Compose waits for PostgreSQL health before starting ingestion and waits for ingestion TCP readiness before starting the simulator.
-- Traffic simulator tests cover payload generation, scheduler behavior, service selection, sequential/concurrent sending, retry behavior, and app startup.
+- The simulator supports configurable RabbitMQ exchange/routing key, tick rate, events per tick, sequential mode, and virtual-thread concurrent mode.
+- Simulator publish logic retries transient RabbitMQ transport failures before logging a final failure.
+- Compose app profile runs PostgreSQL, RabbitMQ, ingestion API, and traffic simulator together.
+- Compose waits for PostgreSQL and RabbitMQ health before starting ingestion, and the simulator waits for RabbitMQ health before publishing.
+- Traffic simulator tests cover payload generation, RabbitMQ publishing, scheduler behavior, service selection, sequential/concurrent sending, retry behavior, and app startup.
+- RabbitMQ is part of the Compose app profile and is used for service-to-service event transport.
+- The simulator now publishes raw ingestion events to RabbitMQ instead of calling ingestion over HTTP.
+- The ingestion service consumes raw ingestion events from RabbitMQ and maps them into the existing durable ingestion queue path.
+- `POST /events` remains available as a fallback/manual ingestion API.
+- Ingestion publishes access-event-created messages to RabbitMQ after `AccessEvent` creation for the future evaluation service.
+- Spring AMQP listener retry is configured for raw ingestion consumer failures.
+- The evaluation service has been initialized as a Spring Boot service and will consume processed access events in a future step.
 
 Known constraints:
-- The ingestion in-memory queue is safe for the current single-ingestion-instance simulation, but it is not a distributed queue.
-- Queued rows are not claimed atomically across multiple app instances.
-- Simulator delivery is best-effort and does not persist unsent events locally.
+- The ingestion in-memory processing queue is safe for the current single-ingestion-instance simulation, but it is not a distributed worker queue.
+- Raw ingestion delivery is brokered through RabbitMQ, but queued database rows are still not claimed atomically across multiple app instances.
+- Simulator delivery is durable only after RabbitMQ accepts a message; it does not persist unsent events locally.
 - Security currently permits all ingestion requests; this is intentional for early local ingestion work but must change before exposing the API.
 - Hibernate `ddl-auto=update` is being used for development instead of a migration tool.
 - Documentation for local run commands is still light; `AGENTS.md` contains the local `JAVA_HOME` override note for Maven commands on this machine.
@@ -34,7 +41,7 @@ Known constraints:
 
 ### Week 1 Completion: Rule-Based Alerts
 
-- Add a rule evaluation service that runs after an `AccessEvent` is created.
+- Build out the initialized evaluation service so it consumes access-event-created messages from RabbitMQ after an `AccessEvent` is created.
 - Persist alerts to the existing `alerts` table.
 - Implement initial hardcoded rules:
   - access to a sensitive table,
@@ -42,7 +49,7 @@ Known constraints:
   - `DELETE` query without a `WHERE` clause,
   - unusually high row count for a single event.
 - Add tests for each rule and for the no-alert path.
-- Decide whether alert generation belongs directly in `IngestionQueueProcessor` after `AccessEvent` creation or in a separate domain service invoked from the processor.
+- Keep alert generation in the evaluation service consumer rather than inside `IngestionQueueProcessor`, unless a later design change requires synchronous evaluation.
 
 ### API Visibility
 
@@ -62,11 +69,11 @@ Known constraints:
 
 ### Traffic Simulator Follow-Up
 
-- Document how to run simulator plus ingestion API through Compose.
-- Add an end-to-end Compose smoke test or manual verification script for simulator-to-ingestion flow.
+- Document how to run simulator, RabbitMQ, and ingestion through Compose.
+- Add an end-to-end Compose smoke test or manual verification script for simulator-to-RabbitMQ-to-ingestion flow.
 - Consider a simulator burst profile or command mode for explicit load tests instead of only increasing `events-per-tick`.
 - Consider configurable data distributions for users, tables, sensitive-table targeting, and high-risk queries once alert rules exist.
-- Decide whether simulator failures should remain log-only or feed operational metrics.
+- Decide whether simulator publish failures should remain log-only or feed operational metrics.
 
 ### Anomaly Detection
 
@@ -88,9 +95,10 @@ Known constraints:
 - Introduce database migrations with Flyway or Liquibase before schema changes become harder to manage.
 - Review indexes for alert filtering and policy lookup once those APIs exist.
 - Add database-level constraints that match application validation where practical.
-- Consider a dead-letter status or table for ingestion events that exceed max retries.
+- Add RabbitMQ dead-letter exchange/queue handling for raw ingestion messages that exceed listener retry attempts.
+- Consider a dead-letter status or table for ingestion events that exceed processor max retries.
 - Add operational metrics for accepted events, processed events, failed events, retry counts, and queue depth.
-- Add simulator metrics for sent events, retry attempts, and failed sends if load testing becomes a regular workflow.
+- Add simulator metrics for published events, retry attempts, and failed publishes if load testing becomes a regular workflow.
 
 ### Distributed/Streaming Stretch
 
@@ -114,7 +122,8 @@ Known constraints:
 - Add a README with local development commands.
 - Document request/response examples for `/events`.
 - Add Compose command examples for PostgreSQL only and the full `app` profile.
-- Document traffic simulator configuration and common load-test settings.
+- Document RabbitMQ management UI credentials and queue/exchange names for local development.
+- Document traffic simulator RabbitMQ configuration and common load-test settings.
 - Consider setting `spring.jpa.open-in-view=false` once API read paths are implemented.
 - Review Log4j2 pattern defaults so empty MDC fields render cleanly.
 

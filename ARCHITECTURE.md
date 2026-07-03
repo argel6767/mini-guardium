@@ -1,6 +1,6 @@
 # ARCHITECTURE.md
 
-MiniGuardium is a simplified real-time database activity monitor. The current implementation has two Java/Spring Boot services: a reliable ingestion API and a traffic simulator that produces synthetic database activity. The broader plan adds rule-based alerting, anomaly detection, policy APIs, and a dashboard.
+MiniGuardium is a simplified real-time database activity monitor. The current implementation has three Java/Spring Boot services in the repository: a reliable ingestion service, a traffic simulator that produces synthetic database activity, and a newly initialized evaluation service. The broader plan adds rule-based alerting, anomaly detection, policy APIs, and a dashboard.
 
 ## System Context
 
@@ -8,14 +8,22 @@ Current implemented flow:
 
 ```text
 [Traffic Simulator]
-    -> POST /events
-    -> EventIngestionController
+    -> RabbitMQ exchange guardium.ingestion-events
+    -> queue guardium.ingestion-events.ingestion-processor
+    -> RawIngestionEventListener
     -> EventIngestionService
     -> ingestion_events row with PENDING status
     -> Spring application event after transaction commit
     -> IngestionQueueProcessor in-memory priority queue
     -> access_events row
+    -> RabbitMQ exchange guardium.access-events
     -> ingestion_events status updated to PROCESSED or FAILED
+
+Manual/API fallback:
+[Client]
+    -> POST /events
+    -> EventIngestionController
+    -> same EventIngestionService path
 ```
 
 Planned alerting and visibility flow:
@@ -53,8 +61,9 @@ Future stretch:
 
 Implemented application services:
 
-- `ingestion_processor`: accepts, persists, queues, and processes database activity events.
-- `traffic_simulator`: generates synthetic ingestion payloads and posts them to the ingestion API.
+- `ingestion_processor`: consumes raw RabbitMQ ingestion events, accepts fallback HTTP events, persists, queues, and processes database activity events.
+- `traffic_simulator`: generates synthetic ingestion payloads and publishes them to RabbitMQ.
+- `evaluation_service`: initialized Spring Boot service that will consume processed access-event messages in a later step.
 
 Compose still contains future placeholders for `analytics_engine`, `dashboard`, and Redis-backed streaming.
 
@@ -62,7 +71,8 @@ Compose still contains future placeholders for `analytics_engine`, `dashboard`, 
 
 The ingestion service is a Java/Spring Boot application with these responsibilities:
 
-- accept event payloads through `POST /events`,
+- consume raw ingestion event payloads from RabbitMQ,
+- accept fallback event payloads through `POST /events`,
 - validate required event fields,
 - persist ingestion requests as queue records,
 - return a small DTO instead of exposing JPA entities,
@@ -72,7 +82,7 @@ The ingestion service is a Java/Spring Boot application with these responsibilit
 
 ### API Layer
 
-`EventIngestionController` exposes `POST /events`.
+`EventIngestionController` exposes `POST /events`. This endpoint remains supported for manual ingestion and API clients even though the traffic simulator now publishes through RabbitMQ.
 
 Request DTO: `IngestEventRequest`
 
@@ -95,6 +105,8 @@ Fields:
 The response intentionally hides database internals and event details such as query text, user entity, table entity, retry metadata, and generated persistence fields.
 
 ### Service Layer
+
+`RawIngestionEventListener` consumes messages from RabbitMQ, validates them, maps them into `IngestEventRequest`, and delegates to `EventIngestionService`. Listener exceptions are not swallowed; Spring AMQP listener retry handles consumer failures.
 
 `EventIngestionService` creates an `IngestionEvent` from the request DTO and saves it with `PENDING` status. After saving, it publishes `IngestionQueuedEvent` with the ingestion id. Logging uses Log4j2 `CloseableThreadContext` to attach:
 
@@ -121,6 +133,7 @@ Processing path:
 - Marks eligible rows `PROCESSING` and records `lastAttemptAt`.
 - Finds or creates `DatabaseUser` and `DatabaseTable` rows.
 - Saves an `AccessEvent`.
+- Publishes an access-event-created message to RabbitMQ for evaluation consumers.
 - Marks the ingestion row `PROCESSED` on success.
 - Marks the row `FAILED` on runtime failure and schedules `nextAttemptAt` unless max retries are reached.
 
@@ -132,23 +145,25 @@ Current retry settings:
 
 ## Traffic Simulator
 
-The traffic simulator is a Java/Spring Boot service that generates synthetic database activity and sends it to the ingestion API.
+The traffic simulator is a Java/Spring Boot service that generates synthetic database activity and publishes it to RabbitMQ.
 
 Current behavior:
 
 - generates ingestion-compatible DTOs with username, table name, query type, event timestamp, row count, source IP, and SQL text,
+- wraps each generated event in a raw ingestion RabbitMQ message with a generated `simulatedEventId`,
 - weights generated query types toward `SELECT`, with occasional `INSERT`, `UPDATE`, and `DELETE`,
 - generates some `DELETE` statements without `WHERE` clauses to support future rule-alert testing,
-- posts events through Spring `RestClient`,
-- logs successful sends with ingestion id and status,
-- catches and logs `RestClientException` failures so one send failure does not stop the scheduler,
-- retries transient send failures for the same generated event before giving up.
+- publishes events through Spring AMQP `RabbitTemplate`,
+- logs successful publishes with simulated event id and event metadata,
+- catches and logs `AmqpException` failures so one publish failure does not stop the scheduler,
+- retries transient publish failures for the same generated event before giving up.
 
 Simulator configuration:
 
 ```properties
 traffic-simulator.enabled=false
-traffic-simulator.ingestion-api-url=http://localhost:8080/events
+traffic-simulator.raw-events.exchange=guardium.ingestion-events
+traffic-simulator.raw-events.routing-key=ingestion-event.created
 traffic-simulator.events-per-tick=1
 traffic-simulator.tick-rate=PT1S
 traffic-simulator.concurrent=false
@@ -204,7 +219,7 @@ The ingestion service uses Log4j2 through `log4j2-spring.xml`. Logs include MDC-
 
 These fields allow a single ingestion request to be traced from acceptance through queued processing and retries.
 
-The traffic simulator uses standard Spring logging for send successes, send retries, exhausted send failures, and interrupted retry waits.
+The traffic simulator uses standard Spring logging for publish successes, publish retries, exhausted publish failures, and interrupted retry waits.
 
 ## Security
 
@@ -222,6 +237,7 @@ Planned security work:
 `compose.yml` currently defines:
 
 - `postgres`: PostgreSQL 17 with health checks and a persistent volume.
+- `rabbitmq`: RabbitMQ with the management UI under the `app` profile.
 - `ingestion-api`: Spring Boot ingestion service under the `app` profile.
 - `traffic-simulator`: Spring Boot simulator service under the `app` profile.
 - `anomaly-detector`: future profile placeholder.
@@ -230,10 +246,11 @@ Planned security work:
 
 Compose startup behavior:
 
-- `ingestion-api` waits for PostgreSQL to become healthy,
+- `ingestion-api` waits for PostgreSQL and RabbitMQ to become healthy,
 - `ingestion-api` exposes a TCP health check for port `8080`,
-- `traffic-simulator` waits for `ingestion-api` to become healthy before starting,
-- simulator send retries handle short ingestion restarts or transient connection failures after startup.
+- `traffic-simulator` waits for RabbitMQ to become healthy before starting,
+- durable RabbitMQ queues allow simulator publishes to survive short ingestion restarts,
+- simulator publish retries handle short RabbitMQ connection failures after startup.
 
 Both implemented service Dockerfiles use a Maven build stage and an Eclipse Temurin 25 JRE Jammy runtime stage.
 
@@ -244,6 +261,7 @@ The ingestion test suite covers:
 - controller validation and DTO response shape,
 - unauthenticated health access,
 - service enqueue behavior and tracing metadata,
+- raw RabbitMQ listener mapping and invalid-message failure behavior,
 - queue processor success, retries, skips, priority, duplicate suppression, and nested queue drain behavior,
 - repository query behavior against H2,
 - JPA lifecycle timestamps,
@@ -254,7 +272,8 @@ The traffic simulator test suite covers:
 
 - DTO validation compatibility with the ingestion API,
 - generated payload shape,
-- sender success, transient retry, exhausted retry, and interrupted retry behavior,
+- RabbitMQ publisher payloads,
+- sender publish success, transient retry, exhausted retry, and interrupted retry behavior,
 - sequential and concurrent batch sending,
 - scheduler enabled/disabled behavior,
 - service selection between sequential and concurrent modes,
@@ -276,6 +295,6 @@ If the ingestion service runs with more than one instance, queue processing must
 - Redis Streams,
 - Kafka.
 
-Simulator delivery is best-effort. It retries short transport failures, but it does not maintain a durable local outbox. This is acceptable for synthetic load generation, not for authoritative event capture.
+Simulator delivery is best-effort until RabbitMQ accepts the message. It retries short publish failures, but it does not maintain a durable local outbox before broker acceptance. This is acceptable for synthetic load generation, not for authoritative event capture.
 
 The planned anomaly detector can initially be implemented inside the Java service for speed, then moved to a Python service or stream consumer if the project reaches the Week 4 stretch architecture.

@@ -1,15 +1,16 @@
 package com.guardium_clone.traffic_simulator.service;
 
+import com.guardium_clone.messaging.RawIngestionEventMessage;
+
 import com.guardium_clone.traffic_simulator.api.IngestEventRequest;
-import com.guardium_clone.traffic_simulator.api.IngestEventResponse;
-import com.guardium_clone.traffic_simulator.client.IngestionClient;
 import com.guardium_clone.traffic_simulator.config.TrafficSimulatorProperties;
+import com.guardium_clone.traffic_simulator.messaging.RawIngestionEventPublisher;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.amqp.AmqpException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClientException;
 
 @Component
 public class TrafficEventSender {
@@ -17,27 +18,27 @@ public class TrafficEventSender {
     private static final Logger LOGGER = LoggerFactory.getLogger(TrafficEventSender.class);
 
     private final TrafficEventFactory trafficEventFactory;
-    private final IngestionClient ingestionClient;
+    private final RawIngestionEventPublisher rawIngestionEventPublisher;
     private final TrafficSimulatorProperties properties;
     private final RetrySleeper retrySleeper;
 
     @Autowired
     public TrafficEventSender(
             TrafficEventFactory trafficEventFactory,
-            IngestionClient ingestionClient,
+            RawIngestionEventPublisher rawIngestionEventPublisher,
             TrafficSimulatorProperties properties
     ) {
-        this(trafficEventFactory, ingestionClient, properties, Thread::sleep);
+        this(trafficEventFactory, rawIngestionEventPublisher, properties, Thread::sleep);
     }
 
     TrafficEventSender(
             TrafficEventFactory trafficEventFactory,
-            IngestionClient ingestionClient,
+            RawIngestionEventPublisher rawIngestionEventPublisher,
             TrafficSimulatorProperties properties,
             RetrySleeper retrySleeper
     ) {
         this.trafficEventFactory = trafficEventFactory;
-        this.ingestionClient = ingestionClient;
+        this.rawIngestionEventPublisher = rawIngestionEventPublisher;
         this.properties = properties;
         this.retrySleeper = retrySleeper;
     }
@@ -46,20 +47,19 @@ public class TrafficEventSender {
         IngestEventRequest request = trafficEventFactory.nextEvent();
         for (int attempt = 1; attempt <= properties.sendRetryAttempts(); attempt++) {
             try {
-                IngestEventResponse response = ingestionClient.send(request);
+                RawIngestionEventMessage message = rawIngestionEventPublisher.publish(request);
                 LOGGER.info(
-                        "Sent simulated traffic event username={}, tableName={}, queryType={}, ingestionId={}, status={}",
+                        "Published simulated traffic event simulatedEventId={}, username={}, tableName={}, queryType={}",
+                        message.simulatedEventId(),
                         request.username(),
                         request.tableName(),
-                        request.queryType(),
-                        response == null ? null : response.ingestionId(),
-                        response == null ? null : response.status()
+                        request.queryType()
                 );
                 return;
-            } catch (RestClientException exception) {
+            } catch (AmqpException exception) {
                 if (attempt >= properties.sendRetryAttempts()) {
                     LOGGER.warn(
-                            "Failed to send simulated traffic event username={}, tableName={}, queryType={} after {} attempt(s)",
+                            "Failed to publish simulated traffic event username={}, tableName={}, queryType={} after {} attempt(s)",
                             request.username(),
                             request.tableName(),
                             request.queryType(),
@@ -75,10 +75,10 @@ public class TrafficEventSender {
         }
     }
 
-    private boolean waitBeforeRetry(IngestEventRequest request, int attempt, RestClientException exception) {
+    private boolean waitBeforeRetry(IngestEventRequest request, int attempt, AmqpException exception) {
         Duration backoff = properties.sendRetryBackoff();
         LOGGER.debug(
-                "Retrying simulated traffic event username={}, tableName={}, queryType={}, nextAttempt={}, backoff={}",
+                "Retrying simulated traffic event publish username={}, tableName={}, queryType={}, nextAttempt={}, backoff={}",
                 request.username(),
                 request.tableName(),
                 request.queryType(),
@@ -92,7 +92,7 @@ public class TrafficEventSender {
         } catch (InterruptedException interruptedException) {
             Thread.currentThread().interrupt();
             LOGGER.warn(
-                    "Interrupted before retrying simulated traffic event username={}, tableName={}, queryType={}",
+                    "Interrupted before retrying simulated traffic event publish username={}, tableName={}, queryType={}",
                     request.username(),
                     request.tableName(),
                     request.queryType(),
@@ -108,4 +108,3 @@ public class TrafficEventSender {
         void sleep(Duration duration) throws InterruptedException;
     }
 }
-
