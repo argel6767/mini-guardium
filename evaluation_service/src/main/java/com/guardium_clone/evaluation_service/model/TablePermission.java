@@ -4,5 +4,10 @@ public enum TablePermission {
     READ,
     WRITE,
     DELETE,
-    UPDATE
+    UPDATE;
+
+    public static TablePermission fromString(String queryType) {
+        return TablePermission.valueOf(queryType.toUpperCase());
+    }
+    
 }
