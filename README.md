@@ -1,8 +1,8 @@
 # MiniGuardium
 
-MiniGuardium is a small database activity monitoring project. It simulates database access events, routes them through RabbitMQ, persists them through an ingestion service, and prepares the event stream for future rule evaluation and alerting.
+MiniGuardium is a small Guardium-style database activity monitoring project. It simulates database access events, routes them through RabbitMQ, persists them through an ingestion service, evaluates processed access events, stores alerts, and exposes alert data for dashboard clients.
 
-The project is intentionally built as a simplified Guardium-style system for learning and iteration. The current focus is reliable ingestion and event transport. Rule evaluation, alert APIs, anomaly detection, and a dashboard are planned next steps.
+The project is intentionally built as a simplified real-time monitoring system for learning and iteration. It is also a learning exercise for using Codex and CLI-based AI agent tools to plan, implement, review, and orchestrate a multi-service project while keeping the codebase understandable.
 
 ## Current Status
 
@@ -11,20 +11,22 @@ Implemented today:
 - A Spring Boot ingestion service that accepts database activity events.
 - A Spring Boot traffic simulator that generates synthetic database activity.
 - RabbitMQ transport from simulator to ingestion.
-- PostgreSQL persistence for raw ingestion records and normalized access events.
+- PostgreSQL persistence for raw ingestion records, normalized access events, users, tables, and alerts.
 - A fallback `POST /events` HTTP ingestion endpoint.
-- RabbitMQ publication after `AccessEvent` creation for the future evaluation service.
-- A newly initialized Spring Boot evaluation service scaffold.
-- Docker Compose wiring for PostgreSQL, RabbitMQ, ingestion, and simulator.
+- RabbitMQ publication after `AccessEvent` creation.
+- A Spring Boot evaluation service that consumes processed access-event messages.
+- Rule-based alert severity evaluation and alert persistence.
+- Alert REST endpoints for list and summary data.
+- Alert Server-Sent Events endpoints for severity notifications, batched alert updates, and alert-rate snapshots.
+- Docker Compose wiring for PostgreSQL, RabbitMQ, ingestion, evaluation, and simulator.
 
 Not implemented yet:
 
-- Rule evaluation and alert creation.
-- Alert query APIs.
-- Policy configuration APIs.
+- Configurable policy APIs.
 - Dashboard UI.
 - Production authentication and authorization.
 - Database migrations.
+- Rolling-baseline anomaly detection.
 
 ## High-Level Flow
 
@@ -37,7 +39,10 @@ traffic_simulator
   -> async ingestion queue processor
   -> access_events row
   -> RabbitMQ exchange: guardium.access-events
-  -> future evaluation_service consumer
+  -> RabbitMQ queue: guardium.access-events.evaluation-service
+  -> evaluation_service AccessEventCreatedListener
+  -> alerts row when rule scoring produces a severity
+  -> REST and SSE alert APIs
 ```
 
 The ingestion HTTP endpoint remains available for manual events:
@@ -67,7 +72,7 @@ client
 
 ### ingestion_processor
 
-`ingestion_processor` is the main ingestion API and worker service.
+`ingestion_processor` is the ingestion API and worker service.
 
 Responsibilities:
 
@@ -75,15 +80,10 @@ Responsibilities:
 - Accepts fallback HTTP ingestion through `POST /events`.
 - Validates incoming event DTOs.
 - Persists raw ingestion work to `ingestion_events`.
-- Processes queued ingestion work asynchronously.
+- Processes queued ingestion work asynchronously after transaction commit.
 - Normalizes events into `access_events`.
-- Publishes processed access-event messages to RabbitMQ for future evaluation.
+- Publishes processed access-event messages to RabbitMQ for evaluation.
 - Retries failed processing with backoff and retry metadata.
-
-Main runtime dependencies:
-
-- PostgreSQL
-- RabbitMQ
 
 Important configuration:
 
@@ -106,6 +106,8 @@ Responsibilities:
 - Publishes raw ingestion messages to `guardium.ingestion-events`.
 - Retries transient RabbitMQ publish failures.
 - Supports sequential and virtual-thread concurrent publishing.
+- Generates timestamps across a rolling 14-day window and keeps them out of the future.
+- Uses role-aware time-of-day probabilities so most synthetic traffic occurs during expected hours, with occasional suspicious timing.
 
 Default local Compose behavior:
 
@@ -129,14 +131,42 @@ traffic-simulator.raw-events.routing-key=ingestion-event.created
 
 ### evaluation_service
 
-`evaluation_service` is currently a Spring Boot scaffold. Its intended role is to consume access-event-created messages from RabbitMQ, evaluate rule violations, determine severity, and persist alerts.
+`evaluation_service` consumes processed access events and owns alert creation and dashboard-facing alert data.
 
-Planned first rules:
+Responsibilities:
+
+- Declares and consumes `guardium.access-events.evaluation-service`.
+- Loads the persisted `AccessEvent` created by ingestion.
+- Scores access events using hardcoded rule signals.
+- Persists `Alert` rows when the score reaches alert severity.
+- Publishes in-process alert-created events for streaming clients.
+- Exposes alert list, summary, severity stream, batch stream, and rate stream endpoints.
+
+Current rule signals include:
 
 - Sensitive table access.
-- Access outside normal hours.
+- Access outside the role's expected hours.
 - `DELETE` without a `WHERE` clause.
 - High row count for a single event.
+- Role/table permission mismatch checks.
+
+Current alert endpoints are served from the evaluation service on `localhost:8081` in Compose:
+
+```text
+GET /alerts
+GET /alerts/summary
+GET /alerts/stream/severity
+GET /alerts/stream/batches
+GET /alerts/stream/rates
+```
+
+Important configuration:
+
+```properties
+evaluation.access-events.exchange=guardium.access-events
+evaluation.access-events.queue=guardium.access-events.evaluation-service
+evaluation.access-events.routing-key=access-event.created
+```
 
 ### PostgreSQL
 
@@ -167,9 +197,10 @@ Current exchanges:
 - `guardium.ingestion-events`
 - `guardium.access-events`
 
-Current raw ingestion queue:
+Current queues:
 
 - `guardium.ingestion-events.ingestion-processor`
+- `guardium.access-events.evaluation-service`
 
 ## Running Locally
 
@@ -200,9 +231,10 @@ This starts:
 - PostgreSQL
 - RabbitMQ
 - ingestion API
+- evaluation service
 - traffic simulator
 
-The simulator waits for PostgreSQL, RabbitMQ, and the ingestion API to be healthy before publishing events. This avoids losing initial direct-exchange messages before the ingestion-owned queue binding exists.
+The simulator waits for ingestion and evaluation to become healthy before publishing. This gives both direct-exchange queue bindings a chance to exist before synthetic traffic starts.
 
 ### Check Service Status
 
@@ -214,6 +246,7 @@ docker compose --profile app ps
 
 ```powershell
 docker compose --profile app logs -f ingestion-api
+docker compose --profile app logs -f evaluation-service
 docker compose --profile app logs -f traffic-simulator
 docker compose --profile app logs -f rabbitmq
 ```
@@ -241,7 +274,7 @@ $body = @{
   username = 'alice'
   tableName = 'customer_accounts'
   queryType = 'SELECT'
-  occurredAt = '2026-07-03T12:00:00Z'
+  occurredAt = '2026-07-04T12:00:00Z'
   rowCount = 25
   sourceIp = '10.0.0.25'
   queryText = 'SELECT * FROM customer_accounts WHERE customer_id = 42'
@@ -260,11 +293,42 @@ Expected response shape:
 {
   "ingestionId": 1,
   "status": "PENDING",
-  "acceptedAt": "2026-07-03T12:00:00Z"
+  "acceptedAt": "2026-07-04T12:00:00Z"
 }
 ```
 
 The event is processed asynchronously after the ingestion row commits.
+
+## Alert API Examples
+
+The evaluation service listens on `localhost:8081` in the Compose app profile.
+
+List alerts:
+
+```powershell
+Invoke-RestMethod 'http://localhost:8081/alerts?page=0&size=10'
+```
+
+Filter alerts:
+
+```powershell
+Invoke-RestMethod 'http://localhost:8081/alerts?severity=HIGH&username=alice&tableName=customer_accounts'
+Invoke-RestMethod 'http://localhost:8081/alerts?createdFrom=2026-07-01T00:00:00Z&createdTo=2026-07-05T00:00:00Z'
+```
+
+Summary:
+
+```powershell
+Invoke-RestMethod 'http://localhost:8081/alerts/summary'
+```
+
+Server-Sent Events streams:
+
+```powershell
+curl.exe -N "http://localhost:8081/alerts/stream/severity"
+curl.exe -N "http://localhost:8081/alerts/stream/batches"
+curl.exe -N "http://localhost:8081/alerts/stream/rates"
+```
 
 ## Useful Verification Commands
 
@@ -274,16 +338,17 @@ Check RabbitMQ queue depth:
 docker compose --profile app exec -T rabbitmq rabbitmqctl list_queues name messages messages_ready messages_unacknowledged consumers
 ```
 
-Check persisted event counts:
+Check persisted event and alert counts:
 
 ```powershell
-docker compose --profile app exec -T postgres psql -U miniguardium -d miniguardium -c "select status, count(*) from ingestion_events group by status order by status; select count(*) as access_events from access_events;"
+docker compose --profile app exec -T postgres psql -U miniguardium -d miniguardium -c "select status, count(*) from ingestion_events group by status order by status; select count(*) as access_events from access_events; select severity, count(*) from alerts group by severity order by severity;"
 ```
 
-Check recent ingestion errors:
+Check recent service errors:
 
 ```powershell
 docker compose --profile app logs --since=5m ingestion-api | Select-String -Pattern "ERROR|Exception|Failed"
+docker compose --profile app logs --since=5m evaluation-service | Select-String -Pattern "ERROR|Exception|Failed"
 ```
 
 ## Running Tests
@@ -322,7 +387,7 @@ cd evaluation_service
 - Database rows are not claimed atomically across multiple ingestion instances yet.
 - Security is intentionally permissive for local development.
 - Hibernate schema updates are used for development; Flyway or Liquibase should be introduced later.
-- The evaluation service exists but does not yet consume access-event messages or create alerts.
+- Alert evaluation is rule-based and hardcoded; configurable policies and anomaly baselines are future work.
 
 ## More Detail
 

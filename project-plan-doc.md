@@ -1,57 +1,129 @@
 # MiniGuardium - A Simplified Real-Time DB Activity Monitor
 
-A scoped-down clone of Guardium's core idea: watch database activity in real time, flag suspicious behavior, and expose it through an API/dashboard. Sized for ~3-4 weeks, part-time.
+MiniGuardium is a scoped-down clone of Guardium's core idea: watch database activity in near real time, flag suspicious behavior, and expose alert data through APIs that can support a dashboard.
 
-## Why this project
-It mirrors the actual pieces you'll likely touch at IBM: event ingestion, real-time analytics/anomaly detection, and a service layer around it - without needing Guardium's actual codebase or infra.
+The project has moved beyond the initial ingestion-only shape. It now has RabbitMQ-backed ingestion, normalized access-event persistence, rule-based evaluation, alert persistence, and dashboard-facing REST/SSE endpoints.
 
-## Tech Stack (mirrors likely Guardium stack)
-- **Core service:** Java + Spring Boot (REST API, event ingestion)
-- **Analytics engine:** Python (stats/anomaly detection) - or Java if you want to stay in one language
-- **Storage:** PostgreSQL (or SQLite to keep it light)
-- **Messaging (stretch):** Kafka or Redis Streams for real event streaming
-- **Containerization:** Docker (+ optional docker-compose)
+## Why This Project
 
-## Architecture
+It mirrors practical pieces of a database activity monitoring product:
+
+- event ingestion,
+- asynchronous processing,
+- service-to-service messaging,
+- rule evaluation,
+- alert persistence,
+- dashboard API design,
+- future anomaly detection.
+
+It is also being used as a learning project for CLI-based AI agent workflows with Codex: planning changes, applying incremental implementation steps, reviewing defects, and keeping documentation aligned as the system evolves.
+
+## Current Tech Stack
+
+- Java + Spring Boot for ingestion, simulation, evaluation, and APIs.
+- PostgreSQL for application persistence.
+- RabbitMQ for service-to-service event transport.
+- Docker Compose for local orchestration.
+- H2 for service tests.
+- Future optional services: dashboard, anomaly detector, Redis or Kafka streaming.
+
+## Current Architecture
+
+```text
+[Traffic Simulator]
+    -> RabbitMQ guardium.ingestion-events
+    -> [Ingestion Processor]
+    -> PostgreSQL ingestion_events/access_events
+    -> RabbitMQ guardium.access-events
+    -> [Evaluation Service]
+    -> PostgreSQL alerts
+    -> REST/SSE Alert APIs
+    -> [Future Dashboard]
 ```
-[DB Traffic Simulator] -> [Ingestion API] -> [Event Store]
-                                |
-                       [Anomaly Detector]
-                                |
-                    [Alerts API + Dashboard]
+
+Manual ingestion remains available:
+
+```text
+[Client]
+    -> POST /events
+    -> [Ingestion Processor]
+    -> same async queue and evaluation path
 ```
 
-## Week-by-Week Plan
+## Implementation Progress
 
-**Week 1 - Data model + ingestion**
-- Build a fake DB-traffic generator: emits JSON events (user, table, query type, timestamp, row count, source IP)
-- Spring Boot REST endpoint `/events` that accepts and stores these
-- Data model: `users`, `tables`, `access_events`, `alerts`
-- Simple rule engine: flag hardcoded bad patterns (e.g., access to a "sensitive" table, 2am access, DELETE without WHERE)
+### Completed: Week 1 Data Model and Ingestion
 
-**Week 2 - Real anomaly detection**
-- Rolling baseline per user/table: average query volume, typical access hours
-- Z-score or moving-average based outlier detection ("this user just did 50x their normal query volume")
-- Flag events that break baseline -> write to `alerts`
-- This is the closest analog to what Shpak's RTTE work is likely doing
+- Fake DB traffic generator that emits JSON-like event payloads.
+- Spring Boot ingestion endpoint `POST /events`.
+- Persistent model for users, tables, ingestion events, access events, and alerts.
+- RabbitMQ raw-ingestion path from simulator to ingestion.
+- Durable ingestion queue table with retry metadata.
+- Async processing into normalized `access_events`.
+- Access-event-created messages published after database commit.
 
-**Week 3 - API + visibility**
-- `/alerts` endpoint: list/filter/query alerts
-- `/policies` endpoint: let a user define what counts as "sensitive" (table names, thresholds)
-- Basic auth or API key on endpoints (mirrors compliance-mindset of the product)
-- Dockerize the whole thing
+### Completed: Initial Rule-Based Alerts
 
-**Week 4 (stretch) - Make it "real-time"**
-- Swap synchronous ingestion for Kafka: simulator -> topic -> detector consumer
-- Add a minimal dashboard (even a simple React page or Grafana on top of Postgres) showing live alerts
-- Try a lightweight ML model (isolation forest via scikit-learn) instead of z-score, compare results
+- Spring Boot evaluation service.
+- RabbitMQ consumer for processed access events.
+- Rule scoring for suspicious access patterns.
+- Severity calculation.
+- Alert persistence.
+- Tests for evaluation paths.
 
-## Stretch goals if you want more
-- Multi-tenant policies (different rules per "database")
-- Rate-limiting/blocking simulation - not just alerting, but auto-blocking a "connection"
-- Basic RBAC on the API
+Current rule signals include:
 
-## What this teaches you that's directly relevant
-- Designing an ingestion -> detection -> alert pipeline (the shape of Guardium's real-time engine)
-- Baseline/anomaly detection thinking - useful vocabulary for talking to Shpak about RTTE
-- Spring Boot fluency if that's the Guardium stack, without waiting to find out on the job
+- sensitive table access,
+- access outside expected hours,
+- highly suspicious access hours,
+- unsafe delete checks,
+- high row count,
+- role/table permission mismatch.
+
+### Completed: Initial API Visibility
+
+- `GET /alerts` for paginated and filtered alert listing.
+- `GET /alerts/summary` for aggregate dashboard data.
+- `GET /alerts/stream/severity` for lightweight live alert notifications.
+- `GET /alerts/stream/batches` for batched alert updates.
+- `GET /alerts/stream/rates` for rolling alert-rate snapshots.
+
+## Current Roadmap
+
+### Next: Policies
+
+- Add configurable sensitive tables and thresholds.
+- Add role/table/query permissions as data instead of hardcoded maps.
+- Add `/policies` endpoints with request validation.
+- Apply policies during evaluation.
+- Add integration tests for policy-backed rule behavior.
+
+### Next: Dashboard
+
+- Build the dashboard service currently represented as a Compose placeholder.
+- Display alert summary, recent alerts, filtered alert table, and live stream updates.
+- Render rolling alert rates as a line graph with multiple lines.
+- Use only API DTOs; do not connect the dashboard directly to the database.
+
+### Later: Anomaly Detection
+
+- Build rolling baselines by user, table, and query type.
+- Start with moving average or z-score logic.
+- Persist anomaly alerts through the same alert pipeline.
+- Decide whether the first implementation belongs in Java or in a future Python `analytics_engine` service.
+
+### Later: Production Hardening
+
+- Add API key or basic auth.
+- Add database migrations with Flyway or Liquibase.
+- Add dead-letter queue handling.
+- Add metrics for ingestion, processing, alert creation, stream subscribers, and simulator publishing.
+- Revisit distributed processing if multiple ingestion workers are introduced.
+
+## Stretch Goals
+
+- Multi-tenant policies.
+- Rate-limiting or blocking simulation.
+- Basic RBAC on APIs.
+- Kafka or Redis Streams for a more realistic streaming architecture.
+- Lightweight ML anomaly detection after simple baselines are working.
