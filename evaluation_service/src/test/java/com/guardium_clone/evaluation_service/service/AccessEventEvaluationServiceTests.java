@@ -3,9 +3,11 @@ package com.guardium_clone.evaluation_service.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.guardium_clone.evaluation_service.events.AlertCreatedEvent;
 import com.guardium_clone.evaluation_service.messaging.AccessEventCreatedMessage;
 import com.guardium_clone.evaluation_service.model.AccessEvent;
 import com.guardium_clone.evaluation_service.model.Alert;
@@ -24,6 +26,7 @@ import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 @ExtendWith(MockitoExtension.class)
 class AccessEventEvaluationServiceTests {
@@ -33,6 +36,9 @@ class AccessEventEvaluationServiceTests {
 
     @Mock
     private AlertRepository alertRepository;
+
+    @Mock
+    private ApplicationEventPublisher applicationEventPublisher;
 
     @Captor
     private ArgumentCaptor<Alert> alertCaptor;
@@ -55,6 +61,7 @@ class AccessEventEvaluationServiceTests {
 
         verify(accessEventRepository, never()).findById(any());
         verify(alertRepository, never()).save(any());
+        verifyNoInteractions(applicationEventPublisher);
     }
 
     @Test
@@ -69,6 +76,7 @@ class AccessEventEvaluationServiceTests {
                 "DELETE FROM customer_accounts"
         );
         when(accessEventRepository.findById(101L)).thenReturn(Optional.of(accessEvent));
+        when(alertRepository.save(any(Alert.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.evaluate(new AccessEventCreatedMessage(
                 101L,
@@ -87,5 +95,7 @@ class AccessEventEvaluationServiceTests {
         assertThat(alert.getRuleName()).isEqualTo("ACCESS_EVENT_RISK");
         assertThat(alert.getSeverity()).isEqualTo(AlertSeverity.CRITICAL);
         assertThat(alert.getMessage()).isEqualTo("Access event 101 evaluated with CRITICAL severity");
+        verify(applicationEventPublisher).publishEvent(new AlertCreatedEvent(null));
     }
 }
+

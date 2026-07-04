@@ -1,5 +1,6 @@
 package com.guardium_clone.evaluation_service.service;
 
+import com.guardium_clone.evaluation_service.events.AlertCreatedEvent;
 import com.guardium_clone.evaluation_service.messaging.AccessEventCreatedMessage;
 import com.guardium_clone.evaluation_service.model.Alert;
 import com.guardium_clone.evaluation_service.model.AlertSeverity;
@@ -9,6 +10,7 @@ import com.guardium_clone.evaluation_service.utils.AccessEventEvaluationUtils;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -20,13 +22,16 @@ public class AccessEventEvaluationService {
 
     private final AccessEventRepository accessEventRepository;
     private final AlertRepository alertRepository;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     public AccessEventEvaluationService(
             AccessEventRepository accessEventRepository,
-            AlertRepository alertRepository
+            AlertRepository alertRepository,
+            ApplicationEventPublisher applicationEventPublisher
     ) {
         this.accessEventRepository = accessEventRepository;
         this.alertRepository = alertRepository;
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     @Transactional
@@ -62,8 +67,10 @@ public class AccessEventEvaluationService {
                 severity,
                 "Access event %d evaluated with %s severity".formatted(message.accessEventId(), severity)
         );
-        alertRepository.save(alert);
+        Alert savedAlert = alertRepository.save(alert);
+        applicationEventPublisher.publishEvent(new AlertCreatedEvent(savedAlert.getId()));
 
         LOGGER.info("Access event {} severity: {}", message.accessEventId(), severity);
     }
 }
+

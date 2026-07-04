@@ -146,6 +146,8 @@ services:
       EVALUATION_ACCESS_EVENTS_EXCHANGE: guardium.access-events
       EVALUATION_ACCESS_EVENTS_QUEUE: guardium.access-events.evaluation-service
       EVALUATION_ACCESS_EVENTS_ROUTING_KEY: access-event.created
+    ports:
+      - "8081:8080"
     volumes:
       - evaluation_maven_cache:/root/.m2
       - evaluation_logs:/app/logs
@@ -215,4 +217,5 @@ volumes:
   evaluation_logs:
   dashboard_node_modules:
   redis_data:
+
 
