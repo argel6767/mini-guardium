@@ -22,8 +22,8 @@ public class AccessEventEvaluationUtils {
 
     private static final int NORMAL_POINTS = 0;
     private static final int MEDIUM_POINTS = 3;
-    private static final int HIGH_POINTS = 6;
-    private static final int CRITICAL_POINTS = 10;
+    private static final int HIGH_POINTS = 5;
+    private static final int CRITICAL_POINTS = 7;
 
     private static final Map<Role, List<TableAccess>> roleTableAccessMap = Map.of(
             Role.ADMIN, List.of(
@@ -95,9 +95,9 @@ public class AccessEventEvaluationUtils {
             Collections.unmodifiableNavigableMap(
                     new TreeMap<>(Map.of(
                             0, AlertSeverity.LOW,
-                            3, AlertSeverity.MEDIUM,
-                            6, AlertSeverity.HIGH,
-                            10, AlertSeverity.CRITICAL
+                            4, AlertSeverity.MEDIUM,
+                            8, AlertSeverity.HIGH,
+                            12, AlertSeverity.CRITICAL
                     ))
             );
 

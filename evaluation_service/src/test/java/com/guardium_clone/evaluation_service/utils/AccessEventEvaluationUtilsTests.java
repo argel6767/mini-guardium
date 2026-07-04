@@ -169,8 +169,8 @@ class AccessEventEvaluationUtilsTests {
                 Arguments.of("bob", LocalTime.of(20, 0), 3),
                 Arguments.of("carol", LocalTime.of(1, 0), 3),
                 Arguments.of("dba_admin", LocalTime.of(23, 30), 3),
-                Arguments.of("etl_worker", LocalTime.of(8, 0), 10),
-                Arguments.of("reporting_service", LocalTime.of(2, 0), 6)
+                Arguments.of("etl_worker", LocalTime.of(8, 0), 7),
+                Arguments.of("reporting_service", LocalTime.of(2, 0), 5)
         );
     }
 
@@ -199,20 +199,20 @@ class AccessEventEvaluationUtilsTests {
         return Stream.of(
                 Arguments.of("EMPLOYEE", LocalTime.of(8, 0), 0),
                 Arguments.of("EMPLOYEE", LocalTime.of(20, 0), 3),
-                Arguments.of("EMPLOYEE", LocalTime.of(23, 0), 6),
+                Arguments.of("EMPLOYEE", LocalTime.of(23, 0), 5),
                 Arguments.of("ADMIN", LocalTime.of(12, 0), 0),
                 Arguments.of("ADMIN", LocalTime.of(23, 30), 3),
-                Arguments.of("ADMIN", LocalTime.of(3, 0), 6),
+                Arguments.of("ADMIN", LocalTime.of(3, 0), 5),
                 Arguments.of("GUEST", LocalTime.of(7, 0), 0),
                 Arguments.of("GUEST", LocalTime.of(1, 0), 3),
-                Arguments.of("GUEST", LocalTime.of(4, 0), 6),
+                Arguments.of("GUEST", LocalTime.of(4, 0), 5),
                 Arguments.of("ETL_WORKER", LocalTime.of(2, 15), 0),
                 Arguments.of("ETL_WORKER", LocalTime.of(3, 0), 3),
-                Arguments.of("ETL_WORKER", LocalTime.of(5, 0), 6),
-                Arguments.of("ETL_WORKER", LocalTime.of(8, 0), 10),
+                Arguments.of("ETL_WORKER", LocalTime.of(5, 0), 5),
+                Arguments.of("ETL_WORKER", LocalTime.of(8, 0), 7),
                 Arguments.of("REPORTING_SERVICE", LocalTime.of(9, 0), 0),
                 Arguments.of("REPORTING_SERVICE", LocalTime.of(23, 0), 3),
-                Arguments.of("REPORTING_SERVICE", LocalTime.of(2, 0), 6)
+                Arguments.of("REPORTING_SERVICE", LocalTime.of(2, 0), 5)
         );
     }
 
@@ -220,18 +220,18 @@ class AccessEventEvaluationUtilsTests {
         return Stream.of(
                 Arguments.of("SELECT", 10_000L, 0),
                 Arguments.of("SELECT", 10_001L, 3),
-                Arguments.of("SELECT", 100_001L, 6),
+                Arguments.of("SELECT", 100_001L, 5),
                 Arguments.of("INSERT", 1_000L, 0),
                 Arguments.of("INSERT", 1_001L, 3),
-                Arguments.of("INSERT", 10_001L, 6),
+                Arguments.of("INSERT", 10_001L, 5),
                 Arguments.of("CREATE", 1_001L, 3),
                 Arguments.of("UPDATE", 1_000L, 0),
                 Arguments.of("UPDATE", 1_001L, 3),
-                Arguments.of("UPDATE", 10_001L, 6),
+                Arguments.of("UPDATE", 10_001L, 5),
                 Arguments.of("ALTER", 1_001L, 3),
                 Arguments.of("DELETE", 100L, 0),
                 Arguments.of("DELETE", 101L, 3),
-                Arguments.of("DELETE", 1_001L, 6),
+                Arguments.of("DELETE", 1_001L, 5),
                 Arguments.of("DROP", 101L, 3),
                 Arguments.of("OTHER", 10_001L, 3)
         );
@@ -242,11 +242,12 @@ class AccessEventEvaluationUtilsTests {
                 Arguments.of(0, AlertSeverity.LOW),
                 Arguments.of(1, AlertSeverity.LOW),
                 Arguments.of(2, AlertSeverity.LOW),
-                Arguments.of(3, AlertSeverity.MEDIUM),
-                Arguments.of(5, AlertSeverity.MEDIUM),
-                Arguments.of(6, AlertSeverity.HIGH),
-                Arguments.of(9, AlertSeverity.HIGH),
-                Arguments.of(10, AlertSeverity.CRITICAL),
+                Arguments.of(3, AlertSeverity.LOW),
+                Arguments.of(4, AlertSeverity.MEDIUM),
+                Arguments.of(7, AlertSeverity.MEDIUM),
+                Arguments.of(8, AlertSeverity.HIGH),
+                Arguments.of(11, AlertSeverity.HIGH),
+                Arguments.of(12, AlertSeverity.CRITICAL),
                 Arguments.of(14, AlertSeverity.CRITICAL)
         );
     }

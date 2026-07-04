@@ -93,8 +93,8 @@ class AccessEventEvaluationServiceTests {
         Alert alert = alertCaptor.getValue();
         assertThat(alert.getAccessEvent()).isSameAs(accessEvent);
         assertThat(alert.getRuleName()).isEqualTo("ACCESS_EVENT_RISK");
-        assertThat(alert.getSeverity()).isEqualTo(AlertSeverity.CRITICAL);
-        assertThat(alert.getMessage()).isEqualTo("Access event 101 evaluated with CRITICAL severity");
+        assertThat(alert.getSeverity()).isEqualTo(AlertSeverity.HIGH);
+        assertThat(alert.getMessage()).isEqualTo("Access event 101 evaluated with HIGH severity");
         verify(applicationEventPublisher).publishEvent(new AlertCreatedEvent(null));
     }
 }
