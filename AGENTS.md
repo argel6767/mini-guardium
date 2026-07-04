@@ -6,6 +6,8 @@
 - Write code that is simple, maintainable, and easy to understand.
 - Prefer clear names for classes, methods, variables, and tests.
 - Avoid unnecessary abstractions unless they clearly improve maintainability.
+- Read TASK.md to understand the project's goals and requirements.
+- Read ARCHITECTURE.md to understand the project's architecture and design.
 
 ## Java / Spring Boot Style
 
