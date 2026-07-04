@@ -120,9 +120,10 @@ public class AccessEventEvaluationUtils {
     private static TablePermission getTablePermission(String queryType) {
         return switch (queryType) {
             case "SELECT" -> TablePermission.READ;
-            case "INSERT" -> TablePermission.WRITE;
-            case "UPDATE" -> TablePermission.UPDATE;
-            case "DELETE" -> TablePermission.DELETE;
+            case "INSERT", "CREATE" -> TablePermission.WRITE;
+            case "UPDATE", "ALTER" -> TablePermission.UPDATE;
+            case "DELETE", "DROP" -> TablePermission.DELETE;
+            case "OTHER" -> TablePermission.READ;
             default -> throw new IllegalArgumentException(
                     "Unknown query type: " + queryType
             );
@@ -319,3 +320,4 @@ public class AccessEventEvaluationUtils {
         return Table.fromString(tableName);
     }
 }
+

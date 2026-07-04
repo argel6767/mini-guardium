@@ -179,7 +179,11 @@ class AccessEventEvaluationUtilsTests {
                 Arguments.of("SELECT", true),
                 Arguments.of("INSERT", true),
                 Arguments.of("UPDATE", true),
-                Arguments.of("DELETE", false)
+                Arguments.of("DELETE", false),
+                Arguments.of("CREATE", true),
+                Arguments.of("ALTER", true),
+                Arguments.of("DROP", false),
+                Arguments.of("OTHER", true)
         );
     }
 
@@ -220,12 +224,16 @@ class AccessEventEvaluationUtilsTests {
                 Arguments.of("INSERT", 1_000L, 0),
                 Arguments.of("INSERT", 1_001L, 3),
                 Arguments.of("INSERT", 10_001L, 6),
+                Arguments.of("CREATE", 1_001L, 3),
                 Arguments.of("UPDATE", 1_000L, 0),
                 Arguments.of("UPDATE", 1_001L, 3),
                 Arguments.of("UPDATE", 10_001L, 6),
+                Arguments.of("ALTER", 1_001L, 3),
                 Arguments.of("DELETE", 100L, 0),
                 Arguments.of("DELETE", 101L, 3),
-                Arguments.of("DELETE", 1_001L, 6)
+                Arguments.of("DELETE", 1_001L, 6),
+                Arguments.of("DROP", 101L, 3),
+                Arguments.of("OTHER", 10_001L, 3)
         );
     }
 
@@ -271,6 +279,7 @@ class AccessEventEvaluationUtilsTests {
         return ZonedDateTime.of(EVENT_DATE, localTime, NEW_YORK).toInstant();
     }
 }
+
 
 
 

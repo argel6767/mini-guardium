@@ -26,6 +26,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Component
@@ -182,7 +184,7 @@ public class IngestionQueueProcessor {
                             queuedEvent.getSourceIp(),
                             queuedEvent.getQueryText()
                     ));
-                    accessEventCreatedPublisher.publish(accessEvent);
+                    publishAfterCommit(accessEvent);
                     queuedEvent.setStatus(IngestionStatus.PROCESSED);
                     LOGGER.info("Processed ingestion event");
                 } catch (RuntimeException exception) {
@@ -203,6 +205,28 @@ public class IngestionQueueProcessor {
                 }
             });
         }
+    }
+
+    private void publishAfterCommit(AccessEvent accessEvent) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            accessEventCreatedPublisher.publish(accessEvent);
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    accessEventCreatedPublisher.publish(accessEvent);
+                } catch (RuntimeException exception) {
+                    LOGGER.error(
+                            "Failed to publish access event after ingestion commit accessEventId={}",
+                            accessEvent.getId(),
+                            exception
+                    );
+                }
+            }
+        });
     }
 
     private boolean isReadyForProcessing(IngestionEvent event, Instant now) {
@@ -255,3 +279,4 @@ public class IngestionQueueProcessor {
         }
     }
 }
+

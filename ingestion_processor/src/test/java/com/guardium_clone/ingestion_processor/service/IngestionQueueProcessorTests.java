@@ -35,6 +35,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 class IngestionQueueProcessorTests {
@@ -75,6 +77,9 @@ class IngestionQueueProcessorTests {
     @AfterEach
     void clearThreadContext() {
         ThreadContext.clearAll();
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test
@@ -127,6 +132,26 @@ class IngestionQueueProcessorTests {
         assertThat(event.getStatus()).isEqualTo(IngestionStatus.PROCESSED);
     }
 
+
+    @Test
+    void committedPendingEventPublishesAccessEventAfterTransactionCommit() {
+        IngestionEvent event = ingestionEvent(1L, "alice", "customer_accounts", IngestionStatus.PENDING);
+        when(ingestionEventRepository.findById(1L)).thenReturn(Optional.of(event));
+        when(databaseUserRepository.findByUsername("alice")).thenReturn(Optional.of(new DatabaseUser("alice")));
+        when(databaseTableRepository.findByName("customer_accounts"))
+                .thenReturn(Optional.of(new DatabaseTable("customer_accounts", false)));
+        TransactionSynchronizationManager.initSynchronization();
+
+        processor.enqueueCommittedEvent(new IngestionQueuedEvent(1L));
+
+        assertThat(event.getStatus()).isEqualTo(IngestionStatus.PROCESSED);
+        verify(accessEventCreatedPublisher, never()).publish(any(AccessEvent.class));
+
+        TransactionSynchronizationManager.getSynchronizations()
+                .forEach(TransactionSynchronization::afterCommit);
+
+        verify(accessEventCreatedPublisher).publish(any(AccessEvent.class));
+    }
     @Test
     void publishFailureMarksEventFailedAndSchedulesRetryWithBackoff() {
         IngestionEvent event = ingestionEvent(1L, "alice", "customer_accounts", IngestionStatus.PENDING);
@@ -381,3 +406,4 @@ class IngestionQueueProcessorTests {
         return event;
     }
 }
+
