@@ -5,6 +5,7 @@ import java.util.Locale;
 public enum Table {
     CUSTOMERS_ACCOUNTS,
     ORDERS,
+    PAYMENT_CARDS,
     AUDIT_LOGS,
     EMPLOYEES_RECORDS,
     INVENTORY;

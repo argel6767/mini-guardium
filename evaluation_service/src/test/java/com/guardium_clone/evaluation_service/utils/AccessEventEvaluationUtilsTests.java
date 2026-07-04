@@ -42,6 +42,19 @@ class AccessEventEvaluationUtilsTests {
                 .isEqualTo(expected);
     }
 
+    @ParameterizedTest
+    @MethodSource("simulatorUserRoleCases")
+    void isUserAllowedResolvesSimulatorUsernames(String username, String tableName, String queryType, boolean expected) {
+        assertThat(AccessEventEvaluationUtils.isUserAllowed(message(username, tableName, queryType, 1, queryType + " query")))
+                .isEqualTo(expected);
+    }
+
+    @ParameterizedTest
+    @MethodSource("simulatorTimeRiskCases")
+    void evaluateTimeRiskResolvesSimulatorUsernames(String username, LocalTime localTime, int expectedPoints) {
+        assertThat(AccessEventEvaluationUtils.evaluateTimeRisk(message(username, "orders", "SELECT", 1, "SELECT * FROM orders", localTime)))
+                .isEqualTo(expectedPoints);
+    }
     @Test
     void isUserAllowedRejectsUnknownQueryType() {
         AccessEventCreatedMessage message = message("EMPLOYEE", "ORDERS", "TRUNCATE", 1, "TRUNCATE TABLE orders");
@@ -91,6 +104,8 @@ class AccessEventEvaluationUtilsTests {
         return Stream.of(
                 Arguments.of("CUSTOMERS_ACCOUNTS", true),
                 Arguments.of("ORDERS", false),
+                Arguments.of("PAYMENT_CARDS", true),
+                Arguments.of("payment_cards", true),
                 Arguments.of("AUDIT_LOGS", true),
                 Arguments.of("EMPLOYEES_RECORDS", true),
                 Arguments.of("INVENTORY", true)
@@ -101,31 +116,61 @@ class AccessEventEvaluationUtilsTests {
         return Stream.of(
                 Arguments.of("ADMIN", "CUSTOMERS_ACCOUNTS", "DELETE", true),
                 Arguments.of("ADMIN", "ORDERS", "UPDATE", true),
+                Arguments.of("ADMIN", "PAYMENT_CARDS", "DELETE", true),
                 Arguments.of("ADMIN", "AUDIT_LOGS", "INSERT", true),
                 Arguments.of("ADMIN", "EMPLOYEES_RECORDS", "SELECT", true),
                 Arguments.of("ADMIN", "INVENTORY", "DELETE", true),
                 Arguments.of("EMPLOYEE", "CUSTOMERS_ACCOUNTS", "SELECT", true),
                 Arguments.of("EMPLOYEE", "CUSTOMERS_ACCOUNTS", "DELETE", false),
                 Arguments.of("EMPLOYEE", "ORDERS", "DELETE", true),
+                Arguments.of("EMPLOYEE", "PAYMENT_CARDS", "DELETE", false),
                 Arguments.of("EMPLOYEE", "AUDIT_LOGS", "UPDATE", false),
                 Arguments.of("EMPLOYEE", "EMPLOYEES_RECORDS", "INSERT", false),
                 Arguments.of("EMPLOYEE", "INVENTORY", "UPDATE", true),
                 Arguments.of("GUEST", "CUSTOMERS_ACCOUNTS", "SELECT", false),
                 Arguments.of("GUEST", "ORDERS", "SELECT", true),
+                Arguments.of("GUEST", "PAYMENT_CARDS", "SELECT", false),
                 Arguments.of("GUEST", "AUDIT_LOGS", "SELECT", false),
                 Arguments.of("GUEST", "EMPLOYEES_RECORDS", "SELECT", false),
                 Arguments.of("GUEST", "INVENTORY", "SELECT", true),
                 Arguments.of("GUEST", "INVENTORY", "DELETE", false),
                 Arguments.of("ETL_WORKER", "CUSTOMERS_ACCOUNTS", "UPDATE", true),
                 Arguments.of("ETL_WORKER", "ORDERS", "DELETE", false),
+                Arguments.of("ETL_WORKER", "PAYMENT_CARDS", "UPDATE", true),
                 Arguments.of("ETL_WORKER", "AUDIT_LOGS", "INSERT", true),
                 Arguments.of("ETL_WORKER", "EMPLOYEES_RECORDS", "UPDATE", true),
                 Arguments.of("ETL_WORKER", "INVENTORY", "SELECT", true),
                 Arguments.of("REPORTING_SERVICE", "CUSTOMERS_ACCOUNTS", "SELECT", false),
                 Arguments.of("REPORTING_SERVICE", "ORDERS", "SELECT", true),
+                Arguments.of("REPORTING_SERVICE", "PAYMENT_CARDS", "SELECT", false),
                 Arguments.of("REPORTING_SERVICE", "AUDIT_LOGS", "INSERT", false),
                 Arguments.of("REPORTING_SERVICE", "EMPLOYEES_RECORDS", "SELECT", true),
                 Arguments.of("REPORTING_SERVICE", "INVENTORY", "UPDATE", false)
+        );
+    }
+
+
+    private static Stream<Arguments> simulatorUserRoleCases() {
+        return Stream.of(
+                Arguments.of("alice", "orders", "SELECT", true),
+                Arguments.of("bob", "customer_accounts", "UPDATE", true),
+                Arguments.of("carol", "orders", "SELECT", true),
+                Arguments.of("carol", "customer_accounts", "SELECT", false),
+                Arguments.of("dba_admin", "audit_log", "DELETE", true),
+                Arguments.of("etl_worker", "employee_records", "UPDATE", true),
+                Arguments.of("reporting_service", "inventory", "SELECT", true),
+                Arguments.of("reporting_service", "payment_cards", "SELECT", false)
+        );
+    }
+
+    private static Stream<Arguments> simulatorTimeRiskCases() {
+        return Stream.of(
+                Arguments.of("alice", LocalTime.of(8, 0), 0),
+                Arguments.of("bob", LocalTime.of(20, 0), 3),
+                Arguments.of("carol", LocalTime.of(1, 0), 3),
+                Arguments.of("dba_admin", LocalTime.of(23, 30), 3),
+                Arguments.of("etl_worker", LocalTime.of(8, 0), 10),
+                Arguments.of("reporting_service", LocalTime.of(2, 0), 6)
         );
     }
 
@@ -226,3 +271,10 @@ class AccessEventEvaluationUtilsTests {
         return ZonedDateTime.of(EVENT_DATE, localTime, NEW_YORK).toInstant();
     }
 }
+
+
+
+
+
+
+

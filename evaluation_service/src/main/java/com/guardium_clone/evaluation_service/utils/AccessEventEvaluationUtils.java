@@ -7,12 +7,12 @@ import com.guardium_clone.evaluation_service.model.Table;
 import com.guardium_clone.evaluation_service.model.TableAccess;
 import com.guardium_clone.evaluation_service.model.TablePermission;
 import com.guardium_clone.evaluation_service.model.TimeWindow;
-
 import java.time.Duration;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
@@ -29,29 +29,34 @@ public class AccessEventEvaluationUtils {
             Role.ADMIN, List.of(
                     new TableAccess(Table.CUSTOMERS_ACCOUNTS, Set.of(TablePermission.values())),
                     new TableAccess(Table.ORDERS, Set.of(TablePermission.values())),
+                    new TableAccess(Table.PAYMENT_CARDS, Set.of(TablePermission.values())),
                     new TableAccess(Table.AUDIT_LOGS, Set.of(TablePermission.values())),
                     new TableAccess(Table.EMPLOYEES_RECORDS, Set.of(TablePermission.values())),
                     new TableAccess(Table.INVENTORY, Set.of(TablePermission.values()))),
             Role.EMPLOYEE, List.of(
                     new TableAccess(Table.CUSTOMERS_ACCOUNTS, Set.of(TablePermission.READ, TablePermission.WRITE, TablePermission.UPDATE)),
                     new TableAccess(Table.ORDERS, Set.of(TablePermission.values())),
+                    new TableAccess(Table.PAYMENT_CARDS, Set.of(TablePermission.READ, TablePermission.WRITE, TablePermission.UPDATE)),
                     new TableAccess(Table.AUDIT_LOGS, Set.of(TablePermission.READ, TablePermission.WRITE)),
                     new TableAccess(Table.EMPLOYEES_RECORDS, Set.of(TablePermission.READ)),
                     new TableAccess(Table.INVENTORY, Set.of(TablePermission.values()))),
             Role.GUEST, List.of(
                     new TableAccess(Table.CUSTOMERS_ACCOUNTS, Set.of()),
                     new TableAccess(Table.ORDERS, Set.of(TablePermission.READ)),
+                    new TableAccess(Table.PAYMENT_CARDS, Set.of()),
                     new TableAccess(Table.AUDIT_LOGS, Set.of()),
                     new TableAccess(Table.EMPLOYEES_RECORDS, Set.of()),
                     new TableAccess(Table.INVENTORY, Set.of(TablePermission.READ))),
             Role.ETL_WORKER, List.of(
                     new TableAccess(Table.CUSTOMERS_ACCOUNTS, Set.of(TablePermission.READ, TablePermission.WRITE, TablePermission.UPDATE)),
                     new TableAccess(Table.ORDERS, Set.of(TablePermission.READ, TablePermission.WRITE, TablePermission.UPDATE)),
+                    new TableAccess(Table.PAYMENT_CARDS, Set.of(TablePermission.READ, TablePermission.WRITE, TablePermission.UPDATE)),
                     new TableAccess(Table.AUDIT_LOGS, Set.of(TablePermission.READ, TablePermission.WRITE, TablePermission.UPDATE)),
                     new TableAccess(Table.EMPLOYEES_RECORDS, Set.of(TablePermission.READ, TablePermission.WRITE, TablePermission.UPDATE)),
                     new TableAccess(Table.INVENTORY, Set.of(TablePermission.READ, TablePermission.WRITE, TablePermission.UPDATE))),
             Role.REPORTING_SERVICE, List.of(
                     new TableAccess(Table.ORDERS, Set.of(TablePermission.READ)),
+                    new TableAccess(Table.PAYMENT_CARDS, Set.of()),
                     new TableAccess(Table.AUDIT_LOGS, Set.of(TablePermission.READ)),
                     new TableAccess(Table.EMPLOYEES_RECORDS, Set.of(TablePermission.READ)),
                     new TableAccess(Table.INVENTORY, Set.of(TablePermission.READ)))
@@ -61,7 +66,29 @@ public class AccessEventEvaluationUtils {
             Table.AUDIT_LOGS,
             Table.EMPLOYEES_RECORDS,
             Table.INVENTORY,
+            Table.PAYMENT_CARDS,
             Table.CUSTOMERS_ACCOUNTS
+    );
+
+    private static final Map<String, Role> userRoles = Map.of(
+            "alice", Role.EMPLOYEE,
+            "bob", Role.EMPLOYEE,
+            "carol", Role.GUEST,
+            "dba_admin", Role.ADMIN,
+            "etl_worker", Role.ETL_WORKER,
+            "reporting_service", Role.REPORTING_SERVICE
+    );
+
+    private static final Map<String, Table> tableNames = Map.of(
+            "customer_accounts", Table.CUSTOMERS_ACCOUNTS,
+            "customers_accounts", Table.CUSTOMERS_ACCOUNTS,
+            "orders", Table.ORDERS,
+            "payment_cards", Table.PAYMENT_CARDS,
+            "audit_log", Table.AUDIT_LOGS,
+            "audit_logs", Table.AUDIT_LOGS,
+            "employee_records", Table.EMPLOYEES_RECORDS,
+            "employees_records", Table.EMPLOYEES_RECORDS,
+            "inventory", Table.INVENTORY
     );
 
     private static final NavigableMap<Integer, AlertSeverity> severityThresholds =
@@ -75,12 +102,12 @@ public class AccessEventEvaluationUtils {
             );
 
     public static boolean isSensitiveTable(AccessEventCreatedMessage message) {
-        return sensitiveTables.contains(Table.fromString(message.tableName()));
+        return sensitiveTables.contains(resolveTable(message.tableName()));
     }
 
     public static boolean isUserAllowed(AccessEventCreatedMessage message) {
-        Role role = Role.fromString(message.username());
-        Table tableName = Table.fromString(message.tableName());
+        Role role = resolveRole(message.username());
+        Table tableName = resolveTable(message.tableName());
         TablePermission permission = getTablePermission(message.queryType());
 
         return roleTableAccessMap.get(role).stream()
@@ -104,7 +131,7 @@ public class AccessEventEvaluationUtils {
 
     public static boolean isUnsafeDelete(AccessEventCreatedMessage message) {
         return message.queryType().equals("DELETE")
-                && !message.queryText().contains("WHERE");
+                && (!message.queryText().contains("WHERE"));
     }
 
     public static int evaluateTimeRisk(AccessEventCreatedMessage message) {
@@ -112,7 +139,7 @@ public class AccessEventEvaluationUtils {
                 .atZone(ZoneId.of("America/New_York"))
                 .toLocalTime();
 
-        Role role = Role.fromString(message.username());
+        Role role = resolveRole(message.username());
 
         int timeRisk = calulateTimeRiskForRole(role, time);
         return timeRisk;
@@ -272,5 +299,23 @@ public class AccessEventEvaluationUtils {
 
     public static AlertSeverity evaluateAccessEventSeverity(int severityPoints) {
         return severityThresholds.floorEntry(severityPoints).getValue();
+    }
+
+    private static Role resolveRole(String username) {
+        String normalized = username.toLowerCase(Locale.ROOT);
+        Role role = userRoles.get(normalized);
+        if (role != null) {
+            return role;
+        }
+        return Role.fromString(username);
+    }
+
+    private static Table resolveTable(String tableName) {
+        String normalized = tableName.toLowerCase(Locale.ROOT);
+        Table table = tableNames.get(normalized);
+        if (table != null) {
+            return table;
+        }
+        return Table.fromString(tableName);
     }
 }
