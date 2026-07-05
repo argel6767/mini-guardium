@@ -146,6 +146,7 @@ services:
       EVALUATION_ACCESS_EVENTS_EXCHANGE: guardium.access-events
       EVALUATION_ACCESS_EVENTS_QUEUE: guardium.access-events.evaluation-service
       EVALUATION_ACCESS_EVENTS_ROUTING_KEY: access-event.created
+      APP_FRONTEND_ALLOWED_ORIGIN: http://localhost:3000
     ports:
       - "8081:8080"
     volumes:
@@ -166,22 +167,20 @@ services:
       - miniguardium
 
   dashboard:
-    profiles: ["future"]
+    profiles: ["app"]
     build:
       context: ./dashboard
+      args:
+        VITE_EVALUATION_API_BASE_URL: http://localhost:8081
     container_name: miniguardium-dashboard
     restart: unless-stopped
-    environment:
-      API_BASE_URL: http://ingestion-api:8080
     ports:
       - "3000:3000"
-    volumes:
-      - dashboard_node_modules:/app/node_modules
     depends_on:
-      - ingestion-api
+      evaluation-service:
+        condition: service_healthy
     networks:
       - miniguardium
-
   redis:
     profiles: ["streaming"]
     image: redis:8-alpine
@@ -215,7 +214,8 @@ volumes:
   simulator_logs:
   evaluation_maven_cache:
   evaluation_logs:
-  dashboard_node_modules:
   redis_data:
+
+
 
 
