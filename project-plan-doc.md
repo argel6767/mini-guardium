@@ -2,7 +2,7 @@
 
 MiniGuardium is a scoped-down clone of Guardium's core idea: watch database activity in near real time, flag suspicious behavior, and expose alert data through APIs that can support a dashboard.
 
-The project has moved beyond the initial ingestion-only shape. It now has RabbitMQ-backed ingestion, normalized access-event persistence, rule-based evaluation, alert persistence, and dashboard-facing REST/SSE endpoints.
+The project has moved beyond the initial ingestion-only shape. It now has RabbitMQ-backed ingestion, normalized access-event persistence, rule-based evaluation, alert persistence, dashboard-facing REST/SSE endpoints, and a React dashboard consuming those APIs.
 
 ## Why This Project
 
@@ -14,6 +14,7 @@ It mirrors practical pieces of a database activity monitoring product:
 - rule evaluation,
 - alert persistence,
 - dashboard API design,
+- live dashboard UI,
 - future anomaly detection.
 
 It is also being used as a learning project for CLI-based AI agent workflows with Codex: planning changes, applying incremental implementation steps, reviewing defects, and keeping documentation aligned as the system evolves.
@@ -21,11 +22,15 @@ It is also being used as a learning project for CLI-based AI agent workflows wit
 ## Current Tech Stack
 
 - Java + Spring Boot for ingestion, simulation, evaluation, and APIs.
+- React + TypeScript + Vite for the dashboard.
+- Tailwind CSS and shadcn-compatible UI primitives for dashboard styling.
+- React Query and axios for dashboard API access.
 - PostgreSQL for application persistence.
 - RabbitMQ for service-to-service event transport.
 - Docker Compose for local orchestration.
-- H2 for service tests.
-- Future optional services: dashboard, anomaly detector, Redis or Kafka streaming.
+- H2 for Java service tests.
+- Jest and React Testing Library for dashboard tests.
+- Future optional services: anomaly detector, Redis or Kafka streaming.
 
 ## Current Architecture
 
@@ -38,7 +43,7 @@ It is also being used as a learning project for CLI-based AI agent workflows wit
     -> [Evaluation Service]
     -> PostgreSQL alerts
     -> REST/SSE Alert APIs
-    -> [Future Dashboard]
+    -> [React Dashboard]
 ```
 
 Manual ingestion remains available:
@@ -88,6 +93,18 @@ Current rule signals include:
 - `GET /alerts/stream/batches` for batched alert updates.
 - `GET /alerts/stream/rates` for rolling alert-rate snapshots.
 
+### Completed: Initial Dashboard
+
+- React/TypeScript dashboard scaffolded with Vite, Tailwind CSS, shadcn-compatible UI primitives, axios, and React Query.
+- Dark Grafana-style dashboard shell.
+- Custom REST hooks for alert list and summary requests.
+- Custom SSE hooks for severity notifications, batched alert updates, and rolling alert-rate snapshots.
+- Summary metrics, severity mix, recent alerts, latest live alert, live alert rate, and per-severity live line graph.
+- Loading and error states for API-backed components.
+- Jest/React Testing Library coverage under `dashboard/tests`.
+- Dashboard Dockerfile and Compose service exposed at `http://localhost:3000`.
+- Evaluation service CORS configured by frontend origin property.
+
 ## Current Roadmap
 
 ### Next: Policies
@@ -98,12 +115,13 @@ Current rule signals include:
 - Apply policies during evaluation.
 - Add integration tests for policy-backed rule behavior.
 
-### Next: Dashboard
+### Next: Dashboard Follow-Up
 
-- Build the dashboard service currently represented as a Compose placeholder.
-- Display alert summary, recent alerts, filtered alert table, and live stream updates.
-- Render rolling alert rates as a line graph with multiple lines.
-- Use only API DTOs; do not connect the dashboard directly to the database.
+- Add interactive filters by user, table, severity, and time range.
+- Add a full paginated alert table view for investigation workflows.
+- Add ingestion processing status once a status endpoint exists.
+- Consider alert detail views for rule evidence and linked access-event context.
+- Continue using only API DTOs; do not connect the dashboard directly to the database.
 
 ### Later: Anomaly Detection
 

@@ -1,6 +1,6 @@
 # ARCHITECTURE.md
 
-MiniGuardium is a simplified real-time database activity monitor. The current implementation has three Java/Spring Boot services: a reliable ingestion service, a traffic simulator that produces synthetic database activity, and an evaluation service that creates and exposes alerts. The broader plan adds configurable policies, anomaly detection, production security, and a dashboard.
+MiniGuardium is a simplified real-time database activity monitor. The current implementation has three Java/Spring Boot services and a React dashboard: a reliable ingestion service, a traffic simulator that produces synthetic database activity, an evaluation service that creates and exposes alerts, and a dashboard for operational alert visibility. The broader plan adds configurable policies, anomaly detection, and production security.
 
 ## System Context
 
@@ -22,6 +22,7 @@ Current implemented flow:
     -> AccessEventEvaluationService
     -> alerts row when evaluation produces a severity
     -> Alert REST and SSE APIs
+    -> React dashboard
 
 Manual/API fallback:
 [Client]
@@ -34,7 +35,7 @@ Future visibility and analytics flow:
 
 ```text
 [Alert REST/SSE APIs]
-    -> [Dashboard]
+    -> [Dashboard live widgets, recent alerts, and charts]
 
 [Access Events or Alert Stream]
     -> [Rolling Baseline / Anomaly Detector]
@@ -52,6 +53,11 @@ Future visibility and analytics flow:
 |-- compose.yml
 |-- project-plan-doc.md
 |-- docker/
+|-- dashboard/
+|   |-- Dockerfile
+|   |-- package.json
+|   |-- src/
+|   `-- tests/
 |-- evaluation_service/
 |   |-- Dockerfile
 |   |-- pom.xml
@@ -71,8 +77,9 @@ Implemented application services:
 - `ingestion_processor`: consumes raw RabbitMQ ingestion events, accepts fallback HTTP events, persists queue records, and processes database activity into normalized access events.
 - `traffic_simulator`: generates synthetic ingestion payloads and publishes them to RabbitMQ.
 - `evaluation_service`: consumes processed access-event messages, evaluates risk, persists alerts, and serves alert data through REST and SSE endpoints.
+- `dashboard`: React/TypeScript UI that consumes evaluation-service REST and SSE APIs for live alert visibility.
 
-Compose still contains future placeholders for `analytics_engine`, `dashboard`, and Redis-backed streaming.
+Compose still contains future placeholders for `analytics_engine` and Redis-backed streaming.
 
 ## Ingestion Service
 
@@ -245,6 +252,33 @@ Stream behavior:
 - `/batches` emits recent alerts in batches, reducing client update pressure compared with sending every full alert individually.
 - `/rates` emits rolling alert-rate snapshots for line graphs, including overall rates and rates grouped by severity/rule type.
 
+## Dashboard
+
+The dashboard is a React/TypeScript application built with Vite. It uses Tailwind CSS, shadcn-compatible UI primitives, axios for HTTP requests, React Query for server-state management, and Jest/React Testing Library for tests.
+
+Current responsibilities:
+
+- render a dark Grafana-style operational dashboard,
+- fetch alert summaries through `GET /alerts/summary`,
+- fetch paginated recent alerts through `GET /alerts`,
+- subscribe to `/alerts/stream/severity` for lightweight live notification updates,
+- subscribe to `/alerts/stream/batches` for live recent-alert and latest-alert updates,
+- subscribe to `/alerts/stream/rates` for rolling overall and per-severity alert-rate snapshots,
+- show loading and error states around API-backed widgets,
+- keep API and stream access behind reusable hooks.
+
+Current main components:
+
+- `DashboardHeader`: top-level dashboard shell header.
+- `OverviewHeader`: compact operational summary context.
+- `MetricsGrid`: summary cards, live rate, latest alert, and live severity-rate chart.
+- `LiveSeverityRateChart`: SVG line chart for average alerts per minute by severity.
+- `SeverityMixPanel`: severity distribution backed by summary REST data and severity SSE invalidation.
+- `RecentAlertsPanel`: recent alert list backed by REST data and batch SSE invalidation.
+- `DataState`: shared loading, empty, and error state display.
+
+The dashboard does not connect to PostgreSQL. It is intentionally backed only by evaluation-service DTOs and streams.
+
 ## Traffic Simulator
 
 The traffic simulator is a Java/Spring Boot service that generates synthetic database activity and publishes it to RabbitMQ.
@@ -328,7 +362,7 @@ The evaluation service logs access-event evaluation, alert creation, and stream 
 
 ## Security
 
-`SecurityConfig` in the services currently disables CSRF and permits all requests. This keeps local ingestion, simulation, and dashboard API exploration simple while the event pipeline is being built.
+`SecurityConfig` in the services currently disables CSRF and permits all requests. The evaluation service also defines a CORS configuration whose allowed frontend origin comes from `app.frontend.allowed-origin` / `APP_FRONTEND_ALLOWED_ORIGIN`, currently set to `http://localhost:3000` in Compose. This keeps local ingestion, simulation, and dashboard API exploration simple while the event pipeline is being built.
 
 Planned security work:
 
@@ -345,8 +379,8 @@ Planned security work:
 - `ingestion-api`: Spring Boot ingestion service under the `app` profile.
 - `evaluation-service`: Spring Boot evaluation and alert API service under the `app` profile.
 - `traffic-simulator`: Spring Boot simulator service under the `app` profile.
+- `dashboard`: React dashboard built from `dashboard/Dockerfile` and served through Nginx on `localhost:3000`.
 - `anomaly-detector`: future profile placeholder.
-- `dashboard`: future profile placeholder.
 - `redis`: streaming profile placeholder.
 
 Compose startup behavior:
@@ -358,9 +392,9 @@ Compose startup behavior:
 - durable RabbitMQ queues allow short service restarts after queue declaration,
 - simulator publish retries handle short RabbitMQ connection failures after startup.
 
-The ingestion API is exposed as `localhost:8080`; the evaluation service is exposed as `localhost:8081`.
+The ingestion API is exposed as `localhost:8080`; the evaluation service is exposed as `localhost:8081`; the dashboard is exposed as `localhost:3000`.
 
-Implemented service Dockerfiles use a Maven build stage and an Eclipse Temurin 25 JRE Jammy runtime stage.
+Implemented Java service Dockerfiles use a Maven build stage and an Eclipse Temurin 25 JRE Jammy runtime stage. The dashboard Dockerfile uses a Node build stage with PNPM and an Nginx runtime stage.
 
 ## Testing Architecture
 
@@ -399,7 +433,9 @@ The evaluation service test suite covers:
 - SSE stream service behavior,
 - application context startup.
 
-Tests are written with AssertJ and Mockito for readability.
+The dashboard test suite covers the REST API client, SSE client helpers, React Query hooks, and extracted dashboard components. Dashboard tests live under `dashboard/tests` and use Jest with React Testing Library.
+
+Tests are written with AssertJ and Mockito for Java service readability and Jest/React Testing Library for the dashboard.
 
 ## Architectural Constraints and Future Decisions
 

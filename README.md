@@ -1,6 +1,6 @@
 # MiniGuardium
 
-MiniGuardium is a small Guardium-style database activity monitoring project. It simulates database access events, routes them through RabbitMQ, persists them through an ingestion service, evaluates processed access events, stores alerts, and exposes alert data for dashboard clients.
+MiniGuardium is a small Guardium-style database activity monitoring project. It simulates database access events, routes them through RabbitMQ, persists them through an ingestion service, evaluates processed access events, stores alerts, and exposes alert data through a live dashboard.
 
 The project is intentionally built as a simplified real-time monitoring system for learning and iteration. It is also a learning exercise for using Codex and CLI-based AI agent tools to plan, implement, review, and orchestrate a multi-service project while keeping the codebase understandable.
 
@@ -18,12 +18,14 @@ Implemented today:
 - Rule-based alert severity evaluation and alert persistence.
 - Alert REST endpoints for list and summary data.
 - Alert Server-Sent Events endpoints for severity notifications, batched alert updates, and alert-rate snapshots.
-- Docker Compose wiring for PostgreSQL, RabbitMQ, ingestion, evaluation, and simulator.
+- Docker Compose wiring for PostgreSQL, RabbitMQ, ingestion, evaluation, simulator, and dashboard.
+- React/TypeScript dashboard using Vite, Tailwind CSS, shadcn-compatible UI primitives, axios, React Query, and Jest.
+- Dashboard widgets for summary metrics, severity mix, recent alerts, latest live alert, live alert rate, and per-severity live rate lines.
+- Evaluation service CORS configured from `APP_FRONTEND_ALLOWED_ORIGIN` for the dashboard origin.
 
 Not implemented yet:
 
 - Configurable policy APIs.
-- Dashboard UI.
 - Production authentication and authorization.
 - Database migrations.
 - Rolling-baseline anomaly detection.
@@ -43,6 +45,7 @@ traffic_simulator
   -> evaluation_service AccessEventCreatedListener
   -> alerts row when rule scoring produces a severity
   -> REST and SSE alert APIs
+  -> dashboard UI
 ```
 
 The ingestion HTTP endpoint remains available for manual events:
@@ -63,6 +66,7 @@ client
 |-- README.md
 |-- compose.yml
 |-- docker/
+|-- dashboard/
 |-- evaluation_service/
 |-- ingestion_processor/
 `-- traffic_simulator/
@@ -168,6 +172,27 @@ evaluation.access-events.queue=guardium.access-events.evaluation-service
 evaluation.access-events.routing-key=access-event.created
 ```
 
+### dashboard
+
+`dashboard` is the React dashboard for alert visibility.
+
+Responsibilities:
+
+- Uses Vite, TypeScript, Tailwind CSS, and shadcn-compatible UI primitives.
+- Uses axios and React Query for REST requests.
+- Uses custom hooks for alert REST APIs and SSE streams.
+- Renders summary metrics, severity mix, recent alerts, latest live alert, live alert rate, and per-severity live rate lines.
+- Provides general loading and error states for API-backed widgets.
+- Runs Jest/React Testing Library tests from `dashboard/tests`.
+- Builds into an Nginx-served container on port `3000`.
+
+Important configuration:
+
+```text
+VITE_EVALUATION_API_BASE_URL=http://localhost:8081
+APP_FRONTEND_ALLOWED_ORIGIN=http://localhost:3000
+```
+
 ### PostgreSQL
 
 PostgreSQL stores the current application data.
@@ -233,8 +258,9 @@ This starts:
 - ingestion API
 - evaluation service
 - traffic simulator
+- dashboard
 
-The simulator waits for ingestion and evaluation to become healthy before publishing. This gives both direct-exchange queue bindings a chance to exist before synthetic traffic starts.
+The dashboard is available at `http://localhost:3000`. The simulator waits for ingestion and evaluation to become healthy before publishing. This gives both direct-exchange queue bindings a chance to exist before synthetic traffic starts.
 
 ### Check Service Status
 
@@ -373,6 +399,15 @@ cd traffic_simulator
 .\mvnw.cmd test
 ```
 
+Run dashboard checks:
+
+```powershell
+cd dashboard
+pnpm lint
+pnpm test --runInBand
+pnpm exec tsc -b --noEmit
+```
+
 Run evaluation service tests:
 
 ```powershell
@@ -388,6 +423,7 @@ cd evaluation_service
 - Security is intentionally permissive for local development.
 - Hibernate schema updates are used for development; Flyway or Liquibase should be introduced later.
 - Alert evaluation is rule-based and hardcoded; configurable policies and anomaly baselines are future work.
+- Dashboard filtering and alert drill-down workflows are still follow-up work.
 
 ## More Detail
 

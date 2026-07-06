@@ -1,32 +1,135 @@
-# React + TypeScript + Vite
+# MiniGuardium Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The dashboard is a React/TypeScript frontend for MiniGuardium alert visibility. It uses Vite, Tailwind CSS, shadcn-compatible UI primitives, axios, React Query, and Jest/React Testing Library.
 
-Currently, two official plugins are available:
+## Current Status
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Implemented dashboard views and behavior:
 
-## React Compiler
+- Dark Grafana-style operational shell.
+- Alert summary metric cards from `GET /alerts/summary`.
+- Recent alert list from `GET /alerts`.
+- Severity mix panel from alert summary data.
+- Latest live alert card from batched alert SSE events.
+- Live overall alert rate from rate SSE events.
+- Live line graph for average alerts per minute by severity.
+- Loading and error states for API-backed widgets.
+- Custom hooks for all REST and SSE requests.
+- Component, hook, REST client, and SSE client tests under `tests`.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## API Integration
 
-## Expanding the Oxlint configuration
+The dashboard talks to `evaluation_service` only through DTO-based REST and SSE APIs.
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+REST endpoints:
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```text
+GET /alerts
+GET /alerts/summary
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+SSE endpoints:
+
+```text
+GET /alerts/stream/severity
+GET /alerts/stream/batches
+GET /alerts/stream/rates
+```
+
+The evaluation API base URL is configured at build/dev time with:
+
+```text
+VITE_EVALUATION_API_BASE_URL=http://localhost:8081
+```
+
+In Compose, `evaluation_service` allows the dashboard origin with:
+
+```text
+APP_FRONTEND_ALLOWED_ORIGIN=http://localhost:3000
+```
+
+## Local Development
+
+Install dependencies with PNPM:
+
+```powershell
+pnpm install
+```
+
+Run the Vite dev server:
+
+```powershell
+pnpm dev
+```
+
+The dev server defaults to `http://localhost:5173`.
+
+## Docker / Compose
+
+The production dashboard image is built by `dashboard/Dockerfile` and served through Nginx on port `3000`.
+
+Run the full app stack from the repository root:
+
+```powershell
+docker compose --profile app up -d --build
+```
+
+Open the dashboard at:
+
+```text
+http://localhost:3000
+```
+
+## Checks
+
+Run lint:
+
+```powershell
+pnpm lint
+```
+
+Run tests:
+
+```powershell
+pnpm test --runInBand
+```
+
+Run TypeScript checking:
+
+```powershell
+pnpm exec tsc -b --noEmit
+```
+
+Build locally when validating production output:
+
+```powershell
+pnpm build
+```
+
+## Source Layout
+
+```text
+src/
+|-- components/
+|   |-- dashboard/
+|   `-- ui/
+|-- hooks/
+|-- lib/
+`-- main.tsx
+
+tests/
+|-- components/
+|-- hooks/
+|-- lib/
+|-- mocks/
+|-- setup.ts
+`-- queryClientWrapper.tsx
+```
+
+Important files:
+
+- `src/lib/api.ts`: axios REST client and SSE subscription helpers.
+- `src/hooks/useAlerts.ts`: React Query hooks for REST requests.
+- `src/hooks/useAlertStreams.ts`: hooks for alert SSE streams.
+- `src/components/dashboard/MetricsGrid.tsx`: summary metrics, latest alert, live rate, and live chart composition.
+- `src/components/dashboard/LiveSeverityRateChart.tsx`: SVG line chart for per-severity alert rates.

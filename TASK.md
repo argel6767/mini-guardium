@@ -1,6 +1,6 @@
 # TASK.md
 
-This task list reflects the current state of the ingestion service, traffic simulator, evaluation service, Compose setup, and remaining work from `project-plan-doc.md`.
+This task list reflects the current state of the ingestion service, traffic simulator, evaluation service, dashboard, Compose setup, and remaining work from `project-plan-doc.md`.
 
 ## Current Baseline
 
@@ -38,6 +38,15 @@ Completed:
 - Alert dashboard endpoints exist: `GET /alerts` and `GET /alerts/summary`.
 - Alert stream endpoints exist: `/alerts/stream/severity`, `/alerts/stream/batches`, and `/alerts/stream/rates`.
 - Alert list filtering uses dynamic JPA specifications for optional filters.
+- React/TypeScript dashboard exists under `dashboard` using Vite, Tailwind CSS, shadcn-compatible UI primitives, React Query, axios, and Jest.
+- The dashboard has a dark Grafana-style operational theme.
+- Dashboard REST hooks exist for alert list and summary requests.
+- Dashboard SSE hooks exist for severity notifications, batched alert updates, and rolling alert-rate snapshots.
+- Dashboard components use the custom REST/SSE hooks and provide loading and error states.
+- The dashboard renders summary metrics, severity mix, recent alerts, latest live alert, live alert rate, and a live severity-rate line graph.
+- Dashboard tests live under `dashboard/tests` and cover API clients, hooks, and extracted dashboard components.
+- Dashboard Dockerfile and Nginx runtime exist, and Compose serves the dashboard on `localhost:3000`.
+- Evaluation service CORS allows the configured frontend origin through `APP_FRONTEND_ALLOWED_ORIGIN`.
 
 Known constraints:
 
@@ -47,7 +56,7 @@ Known constraints:
 - Security currently permits all application requests; this is intentional for early local work but must change before exposing the APIs.
 - Hibernate `ddl-auto=update` is being used for development instead of a migration tool.
 - Alert rules are hardcoded in the evaluation service; configurable policies are not implemented yet.
-- The dashboard service is still a placeholder.
+- The dashboard currently provides operational visibility, but alert table filtering, drill-down views, and richer ingestion status views are still follow-up work.
 
 ## Next Tasks
 
@@ -59,17 +68,14 @@ Known constraints:
 - Apply policies during rule evaluation without exposing JPA entities.
 - Add tests for policy validation and rule behavior with configured policies.
 
-### Dashboard
+### Dashboard Follow-Up
 
-- Create the `dashboard` service referenced by Compose.
-- Show live alert counts, recent alerts, and ingestion processing status.
-- Use `GET /alerts/summary` for aggregate cards.
-- Use `GET /alerts` for paginated and filtered alert tables.
-- Use `/alerts/stream/severity` for lightweight live severity notifications.
-- Use `/alerts/stream/batches` for batched alert table updates.
-- Use `/alerts/stream/rates` for line graphs showing rolling alert rates overall and by type.
-- Add filters by user, table, severity, and time range.
-- Keep the dashboard backed by API DTOs, not direct database access.
+- Add interactive filters by user, table, severity, and time range to the alert list UI.
+- Add a full paginated alert table view once the summary dashboard needs deeper investigation workflows.
+- Add ingestion processing status once an ingestion status endpoint exists.
+- Consider a single-alert detail view if users need query text, rule evidence, or linked access-event context.
+- Keep all dashboard data backed by API DTOs and custom hooks, not direct database access.
+- Keep live widgets on SSE streams: severity notifications, batched alert updates, and rolling alert-rate snapshots.
 
 ### Alert API Follow-Up
 
@@ -132,4 +138,3 @@ Known constraints:
 - README documents the project purpose, Codex learning goal, components, local run commands, `/events` examples, alert API examples, RabbitMQ details, and simulator settings.
 - `spring.jpa.open-in-view=false` is configured in ingestion to avoid Open Session in View during request rendering.
 - Review Log4j2 pattern defaults so empty MDC fields render cleanly.
-
