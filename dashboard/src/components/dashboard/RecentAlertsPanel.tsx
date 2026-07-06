@@ -1,8 +1,10 @@
+import { useCallback } from 'react'
 import { RefreshCw } from 'lucide-react'
 
 import { ErrorState, LoadingState } from '@/components/dashboard/DataState'
 import { Button } from '@/components/ui/button'
 import { useAlerts } from '@/hooks/useAlerts'
+import { useAlertBatchStream } from '@/hooks/useAlertStreams'
 import type { Alert } from '@/lib/api'
 
 const recentAlertParams = {
@@ -14,6 +16,17 @@ const recentAlertParams = {
 export function RecentAlertsPanel() {
   const alertsQuery = useAlerts(recentAlertParams)
   const alerts = alertsQuery.data?.content ?? []
+  const refetchAlerts = alertsQuery.refetch
+  const handleAlertBatch = useCallback(
+    (batch: { batchSize: number }) => {
+      if (batch.batchSize > 0) {
+        void refetchAlerts()
+      }
+    },
+    [refetchAlerts],
+  )
+
+  useAlertBatchStream({ onMessage: handleAlertBatch })
 
   return (
     <section className="panel-shadow rounded-md border border-white/10 bg-card/95 p-5">

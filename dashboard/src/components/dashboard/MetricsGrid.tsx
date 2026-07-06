@@ -1,24 +1,55 @@
+import { useCallback, useState } from 'react'
 import { Activity, Clock, ShieldAlert } from 'lucide-react'
 
+import { LiveSeverityRateChart } from '@/components/dashboard/LiveSeverityRateChart'
 import { MetricCard } from '@/components/dashboard/MetricCard'
 import { useAlertSummary } from '@/hooks/useAlerts'
+import { useAlertBatchStream, useAlertRateStream } from '@/hooks/useAlertStreams'
+import type { Alert, AlertBatch, AlertRateSnapshot } from '@/lib/api'
 
-const liveRateBars = [38, 52, 31, 68, 47, 75, 59, 83, 64, 70]
+const maxRateHistoryLength = 12
 
 export function MetricsGrid() {
   const summaryQuery = useAlertSummary()
   const summary = summaryQuery.data
+  const [rateSnapshot, setRateSnapshot] = useState<AlertRateSnapshot | null>(null)
+  const [rateHistory, setRateHistory] = useState<AlertRateSnapshot[]>([])
+  const [latestLiveAlert, setLatestLiveAlert] = useState<Alert | null>(null)
+
+  const handleRateSnapshot = useCallback((snapshot: AlertRateSnapshot) => {
+    setRateSnapshot(snapshot)
+    setRateHistory((currentHistory) => [...currentHistory, snapshot].slice(-maxRateHistoryLength))
+  }, [])
+
+  const refetchSummary = summaryQuery.refetch
+  const handleAlertBatch = useCallback(
+    (batch: AlertBatch) => {
+      const latestAlert = findLatestAlert(batch.alerts)
+
+      if (latestAlert) {
+        setLatestLiveAlert(latestAlert)
+      }
+
+      void refetchSummary()
+    },
+    [refetchSummary],
+  )
+
+  useAlertRateStream({ onMessage: handleRateSnapshot })
+  useAlertBatchStream({ onMessage: handleAlertBatch })
 
   const totalAlerts = summaryQuery.isLoading
     ? '...'
     : summaryQuery.isError
       ? '!'
       : formatCount(summary?.totalAlerts ?? 0)
-  const latestAlert = summaryQuery.isLoading
+  const liveRate = rateSnapshot ? `${formatRate(rateSnapshot.overallPerMinute)}/min` : '--/min'
+  const latestAlertTimestamp = latestLiveAlert?.createdAt ?? summary?.latestAlertCreatedAt
+  const latestAlert = summaryQuery.isLoading && !latestLiveAlert
     ? '...'
-    : summaryQuery.isError
+    : summaryQuery.isError && !latestLiveAlert
       ? '!'
-      : formatDateTime(summary?.latestAlertCreatedAt)
+      : formatDateTime(latestAlertTimestamp)
 
   return (
     <div className="grid gap-4 md:grid-cols-3">
@@ -28,34 +59,44 @@ export function MetricsGrid() {
         </div>
         {summaryQuery.isError ? <p className="mt-3 text-sm text-destructive">Unable to load summary</p> : null}
       </MetricCard>
-      <MetricCard label="Live rate" value="--/min" icon={Activity} iconClassName="text-[var(--chart-medium)]">
-        <div className="mt-4 flex h-8 items-end gap-1" aria-label="Live rate placeholder chart">
-          {liveRateBars.map((height, index) => (
-            <span
-              className="w-full rounded-sm bg-[var(--chart-medium)]/75"
-              style={{ height: `${height}%` }}
-              key={`${height}-${index}`}
-            />
-          ))}
-        </div>
+      <MetricCard label="Live rate" value={liveRate} icon={Activity} iconClassName="text-[var(--chart-medium)]">
+        <LiveSeverityRateChart snapshots={rateHistory} />
       </MetricCard>
       <MetricCard label="Latest alert" value={latestAlert} icon={Clock} iconClassName="text-[var(--chart-low)]">
         <p className="mt-4 text-sm text-muted-foreground">
-          {summaryQuery.isLoading
-            ? 'Loading summary data'
-            : summaryQuery.isError
-              ? 'Summary request failed'
-              : summary?.latestAlertCreatedAt
-                ? 'Most recent evaluation alert'
-                : 'No alerts recorded yet'}
+          {latestLiveAlert
+            ? `${latestLiveAlert.severity} ${latestLiveAlert.ruleName}`
+            : summaryQuery.isLoading
+              ? 'Loading summary data'
+              : summaryQuery.isError
+                ? 'Summary request failed'
+                : summary?.latestAlertCreatedAt
+                  ? 'Most recent evaluation alert'
+                  : 'No alerts recorded yet'}
         </p>
       </MetricCard>
     </div>
   )
 }
 
+function findLatestAlert(alerts: Alert[]) {
+  return alerts.reduce<Alert | null>((latestAlert, alert) => {
+    if (!latestAlert || Date.parse(alert.createdAt) > Date.parse(latestAlert.createdAt)) {
+      return alert
+    }
+
+    return latestAlert
+  }, null)
+}
+
 function formatCount(value: number) {
   return new Intl.NumberFormat('en-US').format(value)
+}
+
+function formatRate(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: value >= 10 ? 0 : 1,
+  }).format(value)
 }
 
 function formatDateTime(value: string | null | undefined) {

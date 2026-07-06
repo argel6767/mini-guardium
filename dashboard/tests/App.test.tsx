@@ -8,6 +8,12 @@ jest.mock('@/hooks/useAlerts', () => ({
   useAlertSummary: jest.fn(),
 }))
 
+jest.mock('@/hooks/useAlertStreams', () => ({
+  useAlertBatchStream: jest.fn(),
+  useAlertRateStream: jest.fn(),
+  useAlertSeverityStream: jest.fn(),
+}))
+
 const mockedUseAlerts = jest.mocked(useAlerts)
 const mockedUseAlertSummary = jest.mocked(useAlertSummary)
 
@@ -39,6 +45,7 @@ describe('App', () => {
       isError: false,
       isLoading: false,
       isSuccess: true,
+      refetch: jest.fn(),
     } as never)
   })
 

@@ -2,7 +2,7 @@ FROM node:25-alpine AS build
 
 WORKDIR /app
 
-RUN corepack enable
+RUN npm install -g pnpm@10
 
 COPY package.json ./
 RUN pnpm install --no-frozen-lockfile

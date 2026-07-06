@@ -1,10 +1,19 @@
+import { useCallback } from 'react'
+
 import { ErrorState, LoadingState } from '@/components/dashboard/DataState'
 import { severityRows } from '@/components/dashboard/severityRows'
 import { useAlertSummary } from '@/hooks/useAlerts'
+import { useAlertSeverityStream } from '@/hooks/useAlertStreams'
 
 export function SeverityMixPanel() {
   const summaryQuery = useAlertSummary()
   const totalAlerts = summaryQuery.data?.totalAlerts ?? 0
+  const refetchSummary = summaryQuery.refetch
+  const handleSeverityEvent = useCallback(() => {
+    void refetchSummary()
+  }, [refetchSummary])
+
+  useAlertSeverityStream({ onMessage: handleSeverityEvent })
 
   return (
     <aside className="panel-shadow rounded-md border border-white/10 bg-card/95 p-5">

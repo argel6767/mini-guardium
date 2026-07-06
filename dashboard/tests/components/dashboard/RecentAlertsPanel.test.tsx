@@ -3,16 +3,23 @@ import userEvent from '@testing-library/user-event'
 
 import { RecentAlertsPanel } from '@/components/dashboard/RecentAlertsPanel'
 import { useAlerts } from '@/hooks/useAlerts'
+import { useAlertBatchStream } from '@/hooks/useAlertStreams'
 
 jest.mock('@/hooks/useAlerts', () => ({
   useAlerts: jest.fn(),
 }))
 
+jest.mock('@/hooks/useAlertStreams', () => ({
+  useAlertBatchStream: jest.fn(),
+}))
+
 const mockedUseAlerts = jest.mocked(useAlerts)
+const mockedUseAlertBatchStream = jest.mocked(useAlertBatchStream)
 
 describe('RecentAlertsPanel', () => {
   beforeEach(() => {
     mockedUseAlerts.mockReset()
+    mockedUseAlertBatchStream.mockReset()
   })
 
   it('renders recent alerts from the alert list query', () => {
@@ -105,6 +112,30 @@ describe('RecentAlertsPanel', () => {
     expect(screen.getByText('Request failed')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Refresh' }))
+
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
+  it('refreshes recent alerts when a live batch arrives', () => {
+    const refetch = jest.fn()
+    mockedUseAlerts.mockReturnValue({
+      data: {
+        content: [],
+      },
+      error: null,
+      isError: false,
+      isFetching: false,
+      isLoading: false,
+      isSuccess: true,
+      refetch,
+    } as never)
+
+    render(<RecentAlertsPanel />)
+
+    mockedUseAlertBatchStream.mock.calls[0][0].onMessage({
+      alerts: [],
+      batchSize: 1,
+      sentAt: '2026-07-02T11:02:00Z',
+    })
 
     expect(refetch).toHaveBeenCalledTimes(1)
   })
