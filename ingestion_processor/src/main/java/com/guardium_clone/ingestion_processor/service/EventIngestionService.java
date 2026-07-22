@@ -52,6 +52,12 @@ public class EventIngestionService {
         return savedEvent;
     }
 
+    @Transactional(readOnly = true)
+    public IngestionEvent getById(Long ingestionId) {
+        return ingestionEventRepository.findById(ingestionId)
+                .orElseThrow(() -> new IngestionEventNotFoundException(ingestionId));
+    }
+
     private CloseableThreadContext.Instance traceContext(Long ingestionEventId) {
         String eventId = ingestionEventId.toString();
         return CloseableThreadContext

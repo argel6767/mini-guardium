@@ -1,6 +1,7 @@
 package com.guardium_clone.ingestion_processor.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -12,6 +13,7 @@ import com.guardium_clone.ingestion_processor.model.IngestionStatus;
 import com.guardium_clone.ingestion_processor.model.QueryType;
 import com.guardium_clone.ingestion_processor.repository.IngestionEventRepository;
 import java.time.Instant;
+import java.util.Optional;
 import org.apache.logging.log4j.ThreadContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -98,6 +100,23 @@ class EventIngestionServiceTests {
         assertThat(ThreadContext.get("ingestionEventId")).isNull();
     }
 
+    @Test
+    void getByIdReturnsExistingIngestionEvent() {
+        IngestionEvent event = new IngestionEvent();
+        when(ingestionEventRepository.findById(42L)).thenReturn(Optional.of(event));
+
+        assertThat(service.getById(42L)).isSameAs(event);
+        verify(ingestionEventRepository).findById(42L);
+    }
+
+    @Test
+    void getByIdThrowsWhenIngestionEventDoesNotExist() {
+        when(ingestionEventRepository.findById(404L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getById(404L))
+                .isInstanceOf(IngestionEventNotFoundException.class)
+                .hasMessage("Ingestion event not found: 404");
+    }
     private void whenPublishingEventCaptureThreadContext() {
         org.mockito.Mockito.doAnswer(invocation -> {
             assertThat(ThreadContext.get("requestId")).isEqualTo("ingestion-123");

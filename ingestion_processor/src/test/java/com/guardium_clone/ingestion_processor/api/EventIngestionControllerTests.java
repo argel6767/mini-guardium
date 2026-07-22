@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.guardium_clone.ingestion_processor.messaging.AccessEventCreatedPublisher;
+import com.guardium_clone.ingestion_processor.model.IngestionEvent;
 import com.guardium_clone.ingestion_processor.model.IngestionStatus;
 import com.guardium_clone.ingestion_processor.model.QueryType;
 import com.guardium_clone.ingestion_processor.repository.AccessEventRepository;
@@ -166,6 +167,34 @@ class EventIngestionControllerTests {
         assertThat(accessEventRepository.findAll()).isEmpty();
     }
 
+    @Test
+    void getEventReturnsStatusWithoutPayloadOrRetryInternals() throws Exception {
+        IngestionEvent event = ingestionEventRepository.save(new IngestionEvent(
+                "alice", "customer_accounts", QueryType.SELECT,
+                Instant.parse("2026-07-02T22:30:00Z"), 42, "10.0.0.12",
+                "select * from customer_accounts"
+        ));
+
+        MvcResult result = mockMvc.perform(get("/events/{ingestionId}", event.getId())).andReturn();
+        String responseBody = result.getResponse().getContentAsString();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(HttpStatus.OK.value());
+        assertThat(responseBody).contains("\"ingestionId\":" + event.getId());
+        assertThat(responseBody).contains("\"status\":\"PENDING\"");
+        assertThat(responseBody).contains("\"acceptedAt\":", "\"updatedAt\":");
+        assertThat(responseBody).doesNotContain(
+                "\"username\"", "\"tableName\"", "\"queryType\"", "\"rowCount\"",
+                "\"sourceIp\"", "\"queryText\"", "\"retryCount\"",
+                "\"lastAttemptAt\"", "\"nextAttemptAt\""
+        );
+    }
+
+    @Test
+    void getEventReturnsNotFoundForUnknownId() throws Exception {
+        MvcResult result = mockMvc.perform(get("/events/{ingestionId}", Long.MAX_VALUE)).andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(HttpStatus.NOT_FOUND.value());
+    }
     private void waitForProcessedIngestionEvent() throws InterruptedException {
         long deadline = System.nanoTime() + 2_000_000_000L;
         while (System.nanoTime() < deadline) {
