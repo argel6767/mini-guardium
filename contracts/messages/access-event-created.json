@@ -1,0 +1,10 @@
+{
+  "accessEventId": 91,
+  "username": "contract-user",
+  "tableName": "customer_accounts",
+  "queryType": "SELECT",
+  "occurredAt": "2026-07-21T12:00:00Z",
+  "rowCount": 42,
+  "sourceIp": "10.0.0.12",
+  "queryText": "select * from customer_accounts"
+}
