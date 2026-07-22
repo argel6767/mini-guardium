@@ -1,0 +1,22 @@
+services:
+  postgres:
+    container_name: !reset null
+    restart: "no"
+    ports: !reset []
+
+  rabbitmq:
+    container_name: !reset null
+    restart: "no"
+    ports: !reset []
+
+  ingestion-api:
+    container_name: !reset null
+    restart: "no"
+    ports: !override
+      - "18080:8080"
+
+  evaluation-service:
+    container_name: !reset null
+    restart: "no"
+    ports: !override
+      - "18081:8080"
