@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  java-tests:
+    name: Java tests (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: ingestion processor
+            directory: ingestion_processor
+          - service: evaluation service
+            directory: evaluation_service
+          - service: traffic simulator
+            directory: traffic_simulator
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+          cache-dependency-path: ${{ matrix.directory }}/pom.xml
+
+      - name: Make Maven wrapper executable
+        run: chmod +x "${{ matrix.directory }}/mvnw"
+
+      - name: Run tests
+        working-directory: ${{ matrix.directory }}
+        run: ./mvnw --batch-mode --no-transfer-progress test
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.directory }}-test-reports
+          path: ${{ matrix.directory }}/target/surefire-reports/
+          if-no-files-found: ignore
+
+  dashboard-tests:
+    name: Dashboard tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Install dependencies
+        working-directory: dashboard
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Lint
+        working-directory: dashboard
+        run: pnpm lint
+
+      - name: Check types
+        working-directory: dashboard
+        run: pnpm exec tsc -b --noEmit
+
+      - name: Run tests
+        working-directory: dashboard
+        run: pnpm exec jest --runInBand
